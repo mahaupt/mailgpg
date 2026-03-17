@@ -14,6 +14,16 @@ struct ContentView: View {
                 .imageScale(.large)
                 .foregroundStyle(.tint)
             Text("Hello, world!")
+            Button("GPG suchen") {
+                do {
+                    let path = try GPGLocator.locate()
+                    let version = try GPGLocator.version(at: path)
+                    print("Gefunden: \(path)")
+                    print("Version: \(version)")
+                } catch {
+                    print("Fehler: \(error)")
+                }
+            }
         }
         .padding()
     }

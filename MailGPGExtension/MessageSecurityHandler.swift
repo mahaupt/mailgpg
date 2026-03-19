@@ -15,6 +15,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     func getEncodingStatus(for message: MEMessage, composeContext: MEComposeContext, completionHandler: @escaping (MEOutgoingMessageEncodingStatus) -> Void) {
         let state = sessionState(for: message)
 
+        // Always report canEncrypt: true so the native encrypt button is available.
+        // Recipients without keys are annotated as warnings but don't disable the button.
+        // If the user sends with encryption on and keys are missing, encode() will
+        // surface an error letting them choose to cancel or send without encryption.
         let allRecipients = message.toAddresses + message.ccAddresses + message.bccAddresses
         let failingAddresses: [MEEmailAddress] = allRecipients.filter { address in
             state?.recipientKeyStatus[address.rawString.lowercased()] == .notFound
@@ -22,18 +26,17 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
         completionHandler(MEOutgoingMessageEncodingStatus(
             canSign: true,
-            canEncrypt: state?.canEncrypt ?? false,
+            canEncrypt: true,
             securityError: nil,
             addressesFailingEncryption: failingAddresses
         ))
     }
 
     func encode(_ message: MEMessage, composeContext: MEComposeContext, completionHandler: @escaping (MEMessageEncodingResult) -> Void) {
-        let shouldSign    = header("x-mailgpg-sign",    in: message) == "1"
-        let shouldEncrypt = header("x-mailgpg-encrypt", in: message) == "1"
-        let allHeaders    = message.headers?.keys.sorted().joined(separator: ", ") ?? "(nil)"
+        let shouldSign    = composeContext.shouldSign
+        let shouldEncrypt = composeContext.shouldEncrypt
 
-        log.debug("encode called — shouldSign=\(shouldSign) shouldEncrypt=\(shouldEncrypt) headers=[\(allHeaders)]")
+        log.info("encode called — shouldSign=\(shouldSign) shouldEncrypt=\(shouldEncrypt)")
 
         guard shouldSign || shouldEncrypt else {
             log.info("encode: no sign/encrypt requested — passing through unchanged")
@@ -51,7 +54,30 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         log.info("encode: rawData size=\(body.count) bytes, sender=\(message.fromAddress.rawString), preview=\(rawPreview)")
 
         let senderEmail  = message.fromAddress.rawString.lowercased()
-        let fingerprints = sessionState(for: message)?.recipientKeys.values.map(\.fingerprint) ?? []
+        let state = sessionState(for: message)
+        let fingerprints = state?.recipientKeys.values.map(\.fingerprint) ?? []
+
+        // Check if encryption is requested but some recipients are missing keys.
+        if shouldEncrypt {
+            let allRecipients = message.toAddresses + message.ccAddresses + message.bccAddresses
+            let missingEmails = allRecipients
+                .map { $0.rawString.lowercased() }
+                .filter { state?.recipientKeyStatus[$0] != .found }
+
+            if !missingEmails.isEmpty {
+                let list = missingEmails.joined(separator: ", ")
+                log.error("encode: encryption requested but missing keys for: \(list)")
+                completionHandler(MEMessageEncodingResult(
+                    encodedMessage: nil,
+                    signingError: nil,
+                    encryptionError: NSError(
+                        domain: "com.mahaupt.mailgpg", code: 3,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "The following recipients don't have a public key:\n\(list)\n\n" +
+                            "Turn off encryption to send without it, or add the missing keys."])))
+                return
+            }
+        }
 
         Task {
             do {

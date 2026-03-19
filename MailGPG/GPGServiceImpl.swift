@@ -508,10 +508,16 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     /// Detects the "unusable secret key" case that occurs when a YubiKey or
     /// OpenPGP smartcard key stub can't be accessed via scdaemon.
     private func signError(code: Int32, stderr: String) -> String {
+        log.error("signError: exit=\(code) stderr=\(stderr)")
         let lower = stderr.lowercased()
         if lower.contains("unusable") || lower.contains("unbrauchbar") {
+            if lower.contains("public") || lower.contains("öffentlich") {
+                return "Cannot encrypt: a recipient's public key is unusable (revoked or expired). " +
+                       "(gpg: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines)))"
+            }
             return "Cannot sign: the secret key is not accessible. " +
-                   "If your key is on a YubiKey or smartcard, make sure it is inserted."
+                   "If your key is on a YubiKey or smartcard, make sure it is inserted. " +
+                   "(gpg: \(stderr.trimmingCharacters(in: .whitespacesAndNewlines)))"
         }
         return "gpg sign failed (exit \(code)): \(stderr)"
     }
@@ -591,13 +597,16 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                         reply: @escaping (Data?, Error?) -> Void) {
         do {
             try GPGAgent.ensureRunning()
-            _ = try? gpg(["--card-status"])
+            log.info("signAndEncrypt: polling card-status…")
+            let cardResult = try? gpg(["--card-status"])
+            log.info("signAndEncrypt: card-status exit=\(cardResult?.exitCode ?? -1)")
             let (_, body) = splitMessage(data)
             // --sign --encrypt in one pass: the signature is embedded inside
             // the encrypted envelope, so the recipient can verify after decrypting.
             var args = ["--sign", "--encrypt", "--armor", "--batch", "--yes",
                         "--trust-model", "always", "--local-user", signerKeyID]
             for fp in recipientFingerprints { args += ["--recipient", fp] }
+            log.info("signAndEncrypt: gpg args=\(args.joined(separator: " "))")
             let (encData, stderr, code) = try gpg(args, input: body)
             guard code == 0 else {
                 throw GPGXPCError.make(.gpgFailed, message: signError(code: code, stderr: stderr))
@@ -684,7 +693,8 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             if localCode == 0 {
                 let keys = parseColonOutput(String(data: localOut, encoding: .utf8) ?? "",
                                             wantSecretKeys: false)
-                if let key = keys.first {
+                let usable = keys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+                if let key = usable.first ?? keys.first(where: { !$0.isRevoked }) {
                     reply(try xpcEncode(key), nil)
                     return
                 }
@@ -710,7 +720,8 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             guard remoteCode == 0 else { reply(nil, nil); return }
             let remoteKeys = parseColonOutput(String(data: remoteOut, encoding: .utf8) ?? "",
                                               wantSecretKeys: false)
-            if let key = remoteKeys.first {
+            let usableRemote = remoteKeys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+            if let key = usableRemote.first ?? remoteKeys.first(where: { !$0.isRevoked }) {
                 reply(try xpcEncode(key), nil)
             } else {
                 reply(nil, nil)

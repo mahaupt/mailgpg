@@ -45,9 +45,10 @@ final class ComposeSessionState: ObservableObject {
     /// Whether the outgoing message should be encrypted.
     @Published var encryptEnabled: Bool = false
     /// Per-recipient key availability. Keyed by email address (lowercased).
-    /// `true`  = a valid public key was found locally or on a keyserver.
-    /// `false` = no key found — recipient cannot receive encrypted mail.
     @Published var recipientKeyStatus: [String: RecipientKeyStatus] = [:]
+    /// The `KeyInfo` for each recipient that has a key. Keyed by email address (lowercased).
+    /// Used by `MessageSecurityHandler` to get fingerprints for encryption.
+    @Published var recipientKeys: [String: KeyInfo] = [:]
 
     /// Encryption is only possible when every recipient has a known public key.
     var canEncrypt: Bool {
@@ -141,6 +142,9 @@ struct ComposeSecurityView: View {
         .onChange(of: state.canEncrypt) { _, canEncrypt in
             if !canEncrypt { state.encryptEnabled = false }
         }
+        .safeAreaInset(edge: .bottom) {
+            XPCPingRow()
+        }
     }
 
     /// Wraps the encrypt toggle so flipping it on when canEncrypt is false is a no-op.
@@ -206,6 +210,47 @@ private struct RecipientRow: View {
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+// MARK: - XPC ping row
+
+/// Debug row shown at the bottom of the compose panel.
+/// Tapping "Ping" sends a round-trip XPC call to the host app and
+/// displays the GPG version it found, confirming the bridge works.
+private struct XPCPingRow: View {
+    @State private var result = "–"
+    @State private var pinging = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "antenna.radiowaves.left.and.right")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(result)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer()
+            Button("Ping") {
+                pinging = true
+                Task {
+                    do {
+                        let version = try await GPGService.shared.ping()
+                        result = "✓ \(version)"
+                    } catch {
+                        result = "✗ \(error.localizedDescription)"
+                    }
+                    pinging = false
+                }
+            }
+            .font(.caption2)
+            .disabled(pinging)
+        }
+        .padding(.horizontal)
+        .padding(.vertical, 6)
+        .background(.quaternary)
     }
 }
 

@@ -57,10 +57,6 @@ struct GPGLocator {
         let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
         let stderr = String(data: stderrData, encoding: .utf8) ?? ""
         
-        print("stdout: '\(stdout)'")
-        print("stderr: '\(stderr)'")
-        print("Exit code: \(process.terminationStatus)")
-        
         // Ersten nicht-leeren String aus beiden nehmen
         let output = stdout.isEmpty ? stderr : stdout
         guard let firstLine = output.components(separatedBy: "\n").first(where: { !$0.isEmpty }) else {

@@ -7,7 +7,15 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		1F3247AA2F69F9C000156831 /* KeyInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A92F69F9C000156831 /* KeyInfo.swift */; };
+		1F3247AB2F69F9C000156831 /* GPGXPCError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A72F69F9C000156831 /* GPGXPCError.swift */; };
+		1F3247AC2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */; };
+		1F3247AD2F69F9C000156831 /* KeyInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A92F69F9C000156831 /* KeyInfo.swift */; };
+		1F3247AE2F69F9C000156831 /* GPGXPCError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A72F69F9C000156831 /* GPGXPCError.swift */; };
+		1F3247AF2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */; };
 		1F5965DA2F69928A000486DC /* MailGPGExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1F5965C12F69928A000486DC /* MailGPGExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1FE946972F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */; };
+		1FE946982F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -35,9 +43,13 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1F3247A72F69F9C000156831 /* GPGXPCError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPGXPCError.swift; sourceTree = "<group>"; };
+		1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPGXPCProtocol.swift; sourceTree = "<group>"; };
+		1F3247A92F69F9C000156831 /* KeyInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInfo.swift; sourceTree = "<group>"; };
 		1F5965AF2F699227000486DC /* MailGPG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MailGPG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965C12F69928A000486DC /* MailGPGExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MailGPGExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965EB2F69A42F000486DC /* Claude.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude.md; sourceTree = "<group>"; };
+		1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityStatus.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -47,18 +59,6 @@
 				Info.plist,
 			);
 			target = 1F5965C02F69928A000486DC /* MailGPGExtension */;
-		};
-		1F5965F22F69B070000486DC /* Exceptions for "MailGPGExtension" folder in "MailGPG" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				ComposeSecurityView.swift,
-				ComposeSessionHandler.swift,
-				ComposeSessionViewController.swift,
-				SecurityDetailView.swift,
-				SecurityDetailViewController.swift,
-				SecurityStatus.swift,
-			);
-			target = 1F5965AE2F699227000486DC /* MailGPG */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -71,7 +71,6 @@
 		1F5965C22F69928A000486DC /* MailGPGExtension */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				1F5965F22F69B070000486DC /* Exceptions for "MailGPGExtension" folder in "MailGPG" target */,
 				1F5965DB2F69928A000486DC /* Exceptions for "MailGPGExtension" folder in "MailGPGExtension" target */,
 			);
 			path = MailGPGExtension;
@@ -97,9 +96,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1F3247A62F69F97400156831 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */,
+				1F3247A72F69F9C000156831 /* GPGXPCError.swift */,
+				1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */,
+				1F3247A92F69F9C000156831 /* KeyInfo.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 		1F5965A62F699227000486DC = {
 			isa = PBXGroup;
 			children = (
+				1F3247A62F69F97400156831 /* Shared */,
 				1F5965EB2F69A42F000486DC /* Claude.md */,
 				1F5965B12F699227000486DC /* MailGPG */,
 				1F5965C22F69928A000486DC /* MailGPGExtension */,
@@ -225,6 +236,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1F3247AA2F69F9C000156831 /* KeyInfo.swift in Sources */,
+				1FE946972F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */,
+				1F3247AB2F69F9C000156831 /* GPGXPCError.swift in Sources */,
+				1F3247AC2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -232,6 +247,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1FE946982F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */,
+				1F3247AD2F69F9C000156831 /* KeyInfo.swift in Sources */,
+				1F3247AE2F69F9C000156831 /* GPGXPCError.swift in Sources */,
+				1F3247AF2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -6,5 +6,11 @@
 	<array>
 		<string>group.com.mahaupt.mailgpg</string>
 	</array>
+	<!-- Allows the sandboxed extension to look up our host app's Mach service
+	     by name. Without this the sandbox blocks the NSXPCConnection entirely. -->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.mahaupt.mailgpg.gpgservice</string>
+	</array>
 </dict>
 </plist>

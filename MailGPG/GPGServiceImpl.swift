@@ -146,28 +146,34 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     ///   Content-Type: application/pgp-signature
     ///   <detached signature>
     ///   --BOUNDARY--
-    private func buildSignedMessage(original: Data, signature: Data) -> Data {
+    /// Build the first MIME body part for a multipart/signed message.
+    /// This is the content that gets signed with `gpg --detach-sign`.
+    /// RFC 3156 §5: the signature covers the complete first MIME part
+    /// (part headers + blank line + body), NOT just the message body text.
+    private func buildSignedPart(rawHeaders: String, body: Data) -> String {
+        let eol = lineEnding(in: rawHeaders)
+        let origCT  = foldedHeaderValue("content-type", in: rawHeaders)
+                   ?? "text/plain; charset=utf-8"
+        let origCTE = foldedHeaderValue("content-transfer-encoding", in: rawHeaders)
+        let bodyStr = String(data: body, encoding: .utf8) ?? ""
+
+        var part = "Content-Type: \(origCT)" + eol
+        if let cte = origCTE {
+            part += "Content-Transfer-Encoding: \(cte)" + eol
+        }
+        part += eol + bodyStr
+        return part
+    }
+
+    private func buildSignedMessage(original: Data, signedPart: String, signature: Data) -> Data {
         let boundary = "MailGPGSig_\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
-        let (rawHeaders, body) = splitMessage(original)
+        let (rawHeaders, _) = splitMessage(original)
 
         // Detect line ending style from the original message — Mail.app uses LF (\n),
         // not CRLF (\r\n). Returning mismatched line endings crashes Mail's MIME parser.
         let eol = lineEnding(in: rawHeaders)
-
-        // Extract the original body-part Content-Type and transfer encoding so we can
-        // reproduce them inside the signed MIME envelope.
-        let origCT  = foldedHeaderValue("content-type", in: rawHeaders)
-                   ?? "text/plain; charset=utf-8"
         let origCTE = foldedHeaderValue("content-transfer-encoding", in: rawHeaders)
-
-        let bodyStr = String(data: body,      encoding: .utf8) ?? ""
         let sigStr  = String(data: signature, encoding: .utf8) ?? ""
-
-        // Build the body part headers for the first signed sub-part.
-        var bodyPartHeaders = "Content-Type: \(origCT)" + eol
-        if let cte = origCTE {
-            bodyPartHeaders += "Content-Transfer-Encoding: \(cte)" + eol
-        }
 
         // MEEncodedOutgoingMessage.rawData must be a complete RFC 2822 message.
         // Strategy: start with the original envelope headers and:
@@ -192,12 +198,12 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         }
 
         // Assemble the full RFC 2822 message: updated headers + blank line + MIME body.
+        // The signedPart is placed byte-for-byte as the first MIME part — this is the
+        // exact content the detached signature was computed over.
         let mime = headers + eol +
             eol +
             "--\(boundary)" + eol +
-            bodyPartHeaders +
-            eol +
-            bodyStr + eol +
+            signedPart + eol +
             "--\(boundary)" + eol +
             "Content-Type: application/pgp-signature; name=\"signature.asc\"" + eol +
             "Content-Disposition: attachment; filename=\"signature.asc\"" + eol +
@@ -205,7 +211,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             sigStr + eol +
             "--\(boundary)--" + eol
 
-        log.info("buildSignedMessage: eol=\(eol == "\r\n" ? "CRLF" : "LF") origCT=\(origCT) origCTE=\(origCTE ?? "(none)") bodyLen=\(body.count) sigLen=\(signature.count) totalLen=\(mime.count)")
+        log.info("buildSignedMessage: eol=\(eol == "\r\n" ? "CRLF" : "LF") signedPartLen=\(signedPart.count) sigLen=\(signature.count) totalLen=\(mime.count)")
         return mime.data(using: .utf8) ?? Data()
     }
 
@@ -531,15 +537,23 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             try GPGAgent.ensureRunning()
             log.info("sign: gpg-agent running, polling card-status…")
             _ = try? gpg(["--card-status"])
-            let (_, body) = splitMessage(data)
-            log.info("sign: body size=\(body.count) bytes, invoking gpg --detach-sign…")
+            let (rawHeaders, body) = splitMessage(data)
+
+            // RFC 3156 §5: the detached signature must cover the complete first
+            // MIME body part (Content-Type headers + blank line + body text),
+            // not just the raw body text.
+            let signedPart = buildSignedPart(rawHeaders: rawHeaders, body: body)
+            guard let signedPartData = signedPart.data(using: .utf8) else {
+                throw GPGXPCError.make(.encodingFailed, message: "Could not encode signed part")
+            }
+            log.info("sign: signed part size=\(signedPartData.count) bytes, invoking gpg --detach-sign…")
             let (sigData, stderr, code) = try gpg(
                 ["--detach-sign", "--armor", "--batch", "--yes",
                  "--local-user", signerKeyID],
-                input: body)
+                input: signedPartData)
             if code == 0 {
                 log.info("sign: succeeded, sig size=\(sigData.count) bytes")
-                reply(buildSignedMessage(original: data, signature: sigData), nil)
+                reply(buildSignedMessage(original: data, signedPart: signedPart, signature: sigData), nil)
             } else {
                 let msg = signError(code: code, stderr: stderr)
                 log.error("sign: gpg failed — \(msg)")

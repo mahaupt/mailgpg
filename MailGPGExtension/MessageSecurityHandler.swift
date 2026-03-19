@@ -156,13 +156,8 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
         log.debug("decodedMessage: \(data.count) bytes — encrypted=\(isEncrypted) signed=\(isSigned)")
 
-        guard isEncrypted else {
-            // Signed-only (multipart/signed) and plain messages: return nil so Mail
-            // renders them natively.  We do NOT call gpg --decrypt on signed-only mail
-            // because (a) it fails, and (b) returning a decryptionFailed MEDecodedMessage
-            // with the raw multipart/signed data causes Mail to crash.
-            // TODO Step 9: call gpg --verify for multipart/signed to show a verified banner.
-            log.debug("decodedMessage: not encrypted — returning nil")
+        guard isEncrypted || isSigned else {
+            log.debug("decodedMessage: not encrypted or signed — returning nil")
             return nil
         }
 
@@ -173,25 +168,54 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         var result: MEDecodedMessage? = nil
         let semaphore = DispatchSemaphore(value: 0)
 
-        Task.detached {
-            do {
-                let (plaintext, status) = try await GPGService.shared.decrypt(data: data)
-                log.debug("decodedMessage: decrypt succeeded, status=\(String(describing: status))")
-                result = Self.makeDecodedMessage(data: plaintext, status: status)
-            } catch let error as NSError {
-                log.error("decodedMessage: decrypt error — \(error.localizedDescription)")
-                switch GPGXPCError(nsError: error) {
-                case .gpgFailed:
-                    // GPG ran but failed (e.g. wrong key, corrupted data) — surface the error.
-                    result = Self.makeDecodedMessage(
-                        data: data,
-                        status: .decryptionFailed(reason: error.localizedDescription))
-                default:
-                    // Host app not running, GPG not found, or not a GPG message — pass through.
-                    result = nil
+        if isSigned && !isEncrypted {
+            // Signed-only: extract the signed data and detached signature,
+            // then call gpg --verify to check the signature.
+            Task.detached {
+                do {
+                    let (signedData, signatureData) = Self.extractSignedParts(from: data)
+                    guard let signedData, let signatureData else {
+                        log.error("decodedMessage: could not extract signed parts from multipart/signed")
+                        semaphore.signal()
+                        return
+                    }
+                    log.debug("decodedMessage: verifying signature (\(signedData.count) data bytes, \(signatureData.count) sig bytes)")
+                    let status = try await GPGService.shared.verify(data: signedData, signature: signatureData)
+                    log.debug("decodedMessage: verify result=\(String(describing: status))")
+                    result = Self.makeDecodedMessage(data: data, status: status)
+                } catch let error as NSError {
+                    log.error("decodedMessage: verify error — \(error.localizedDescription)")
+                    switch GPGXPCError(nsError: error) {
+                    case .gpgFailed:
+                        result = Self.makeDecodedMessage(
+                            data: data,
+                            status: .signatureInvalid(reason: error.localizedDescription))
+                    default:
+                        result = nil
+                    }
                 }
+                semaphore.signal()
             }
-            semaphore.signal()
+        } else {
+            // Encrypted (possibly also signed): decrypt.
+            Task.detached {
+                do {
+                    let (plaintext, status) = try await GPGService.shared.decrypt(data: data)
+                    log.debug("decodedMessage: decrypt succeeded, status=\(String(describing: status))")
+                    result = Self.makeDecodedMessage(data: plaintext, status: status)
+                } catch let error as NSError {
+                    log.error("decodedMessage: decrypt error — \(error.localizedDescription)")
+                    switch GPGXPCError(nsError: error) {
+                    case .gpgFailed:
+                        result = Self.makeDecodedMessage(
+                            data: data,
+                            status: .decryptionFailed(reason: error.localizedDescription))
+                    default:
+                        result = nil
+                    }
+                }
+                semaphore.signal()
+            }
         }
 
         semaphore.wait()
@@ -218,6 +242,84 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
         let context = try? JSONEncoder().encode(status)
         return MEDecodedMessage(data: data, securityInformation: securityInfo, context: context)
+    }
+
+    // MARK: - Multipart/signed parser
+
+    /// Extract the signed data (first MIME part) and detached PGP signature
+    /// (second MIME part) from a multipart/signed message.
+    ///
+    /// RFC 3156 §5: the first part is the signed content (must be passed to
+    /// gpg --verify byte-for-byte), and the second part is the detached signature.
+    private static func extractSignedParts(from data: Data) -> (signedData: Data?, signature: Data?) {
+        guard let str = String(data: data, encoding: .utf8) else { return (nil, nil) }
+
+        // Find the boundary from the Content-Type header.
+        var boundary: String? = nil
+        if let s = str.range(of: "boundary=\""),
+           let e = str.range(of: "\"", range: s.upperBound..<str.endIndex) {
+            boundary = String(str[s.upperBound..<e.lowerBound])
+        } else if let s = str.range(of: "boundary=") {
+            let rest = String(str[s.upperBound...])
+            let end = rest.firstIndex(where: { ";,\r\n \t".contains($0) })
+            boundary = end.map { String(rest[..<$0]) } ?? rest
+        }
+
+        guard let b = boundary else {
+            log.error("extractSignedParts: no boundary found")
+            return (nil, nil)
+        }
+
+        let delim = "--" + b
+        let parts = str.components(separatedBy: delim)
+        // parts: [preamble, signed-part, signature-part, epilogue (after --boundary--)]
+        guard parts.count >= 3 else {
+            log.error("extractSignedParts: expected ≥3 parts, got \(parts.count)")
+            return (nil, nil)
+        }
+
+        // The signed data is the COMPLETE first MIME part including its headers,
+        // but NOT including the boundary lines. gpg --verify needs the exact bytes
+        // that were signed.
+        let signedPart = parts[1]
+        // Strip the leading line break after the boundary delimiter.
+        let signedContent: String
+        if signedPart.hasPrefix("\r\n") {
+            signedContent = String(signedPart.dropFirst(2))
+        } else if signedPart.hasPrefix("\n") {
+            signedContent = String(signedPart.dropFirst(1))
+        } else {
+            signedContent = signedPart
+        }
+        // Strip the trailing line break before the next boundary delimiter.
+        let trimmedSigned: String
+        if signedContent.hasSuffix("\r\n") {
+            trimmedSigned = String(signedContent.dropLast(2))
+        } else if signedContent.hasSuffix("\n") {
+            trimmedSigned = String(signedContent.dropLast(1))
+        } else {
+            trimmedSigned = signedContent
+        }
+
+        // The signature part: extract just the PGP signature block.
+        let sigPart = parts[2]
+        var sigBody: String? = nil
+        // Skip part headers — find the blank line separating headers from body.
+        for sep in ["\r\n\r\n", "\n\n"] {
+            if let bodyStart = sigPart.range(of: sep) {
+                sigBody = String(sigPart[bodyStart.upperBound...])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                break
+            }
+        }
+
+        guard let sigContent = sigBody, !sigContent.isEmpty else {
+            log.error("extractSignedParts: could not extract signature body")
+            return (nil, nil)
+        }
+
+        log.debug("extractSignedParts: signed=\(trimmedSigned.count) chars, sig=\(sigContent.count) chars")
+        return (trimmedSigned.data(using: .utf8), sigContent.data(using: .utf8))
     }
 
     // MARK: - UI

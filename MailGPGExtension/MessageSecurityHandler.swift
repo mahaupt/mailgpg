@@ -350,8 +350,15 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             return (nil, nil)
         }
 
-        log.debug("extractSignedParts: signed=\(trimmedSigned.count) chars, sig=\(sigContent.count) chars")
-        return (trimmedSigned.data(using: .utf8), sigContent.data(using: .utf8))
+        // Normalize to CRLF before verification. We sign the CRLF canonical form
+        // (RFC 3156 §5), but locally stored messages often use LF. Normalizing
+        // here ensures our own verify call uses the same bytes the signature
+        // was computed over.
+        let crlfSigned = trimmedSigned
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\n", with: "\r\n")
+        log.debug("extractSignedParts: signed=\(crlfSigned.count) chars (CRLF), sig=\(sigContent.count) chars")
+        return (crlfSigned.data(using: .utf8), sigContent.data(using: .utf8))
     }
 
     // MARK: - UI

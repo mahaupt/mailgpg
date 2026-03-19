@@ -81,7 +81,7 @@ struct SecurityDetailView: View {
 
     private var title: String {
         switch status {
-        case .encrypted:         return "Encrypted & Signed"
+        case .encrypted(let signers): return signers.isEmpty ? "Encrypted" : "Encrypted & Signed"
         case .signed:            return "Signed"
         case .signatureInvalid:  return "Invalid Signature"
         case .decryptionFailed:  return "Decryption Failed"
@@ -92,7 +92,7 @@ struct SecurityDetailView: View {
 
     private var subtitle: String {
         switch status {
-        case .encrypted:         return "This message was encrypted with OpenPGP."
+        case .encrypted(let signers): return signers.isEmpty ? "This message was encrypted with OpenPGP." : "This message was encrypted and signed with OpenPGP."
         case .signed:            return "The message integrity has been verified."
         case .signatureInvalid:  return "The signature does not match the message content."
         case .decryptionFailed:  return "You may not have the correct private key."

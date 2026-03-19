@@ -174,7 +174,13 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         //   • unnecessary XPC round-trips for plaintext mail
         //   • calling gpg --decrypt on multipart/signed mails we just sent, which
         //     would produce a spurious "decryption failed" banner in Sent
-        let preview = String(data: data.prefix(4096), encoding: .utf8) ?? ""
+        // Scan the entire header block rather than a fixed byte prefix: routing
+        // headers added by Gmail, Exchange, etc. (DKIM, ARC, Received, …) can
+        // push Content-Type well past 4 KB.
+        let eohRange = data.range(of: "\r\n\r\n".data(using: .utf8)!)
+                    ?? data.range(of: "\n\n".data(using: .utf8)!)
+        let headerData = eohRange.map { Data(data[..<$0.lowerBound]) } ?? data
+        let preview = String(data: headerData, encoding: .utf8) ?? ""
         let isEncrypted = preview.contains("multipart/encrypted") ||
                           preview.contains("BEGIN PGP MESSAGE")
         let isSigned    = preview.contains("multipart/signed") ||

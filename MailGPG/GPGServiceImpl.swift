@@ -634,10 +634,68 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                     message: "gpg decrypt failed (exit \(code)): \(stderr)")
             }
             let status = parseDecryptStatus(stderr: stderr)
-            reply(plaintext, try xpcEncode(status), nil)
+            // MEDecodedMessage requires a complete RFC 2822 message (headers + body).
+            // GPG only returns the decrypted payload bytes; we must reconstruct
+            // the full message from the outer envelope headers.
+            let reconstructed = reconstructDecryptedMessage(original: data, plaintext: plaintext)
+            reply(reconstructed, try xpcEncode(status), nil)
         } catch {
             reply(nil, nil, error as NSError)
         }
+    }
+
+    /// Reconstruct a complete RFC 2822 message from the outer encrypted envelope
+    /// and the decrypted payload. `MEDecodedMessage` requires a full RFC 2822
+    /// message, not just the raw decrypted bytes.
+    ///
+    /// We handle two formats:
+    ///  • Full inner MIME entity (RFC 3156-compliant, used by Thunderbird etc.):
+    ///    the decrypted bytes start with MIME headers (e.g. Content-Type:) followed
+    ///    by a blank line and the body. We extract those headers and use them.
+    ///  • Body-only (used by our own outgoing messages):
+    ///    the decrypted bytes are the raw body with no headers. We default to
+    ///    text/plain and use the raw bytes as the body.
+    private func reconstructDecryptedMessage(original: Data, plaintext: Data) -> Data {
+        let (outerHeaders, _) = splitMessage(original)
+        let eol = lineEnding(in: outerHeaders)
+        let plaintextStr = String(data: plaintext, encoding: .utf8) ?? ""
+
+        var contentType = "text/plain; charset=utf-8"
+        var contentTransferEncoding: String? = nil
+        var body = plaintextStr
+
+        // Check whether the decrypted content is itself a complete MIME entity.
+        for sep in ["\r\n\r\n", "\n\n"] {
+            if let range = plaintextStr.range(of: sep) {
+                let innerHeaders = String(plaintextStr[..<range.lowerBound])
+                if innerHeaders.lowercased().contains("content-type:") {
+                    if let ct = foldedHeaderValue("content-type", in: innerHeaders) {
+                        contentType = ct
+                    }
+                    contentTransferEncoding = foldedHeaderValue("content-transfer-encoding", in: innerHeaders)
+                    body = String(plaintextStr[range.upperBound...])
+                    log.info("decrypt: inner MIME entity detected, content-type=\(contentType)")
+                }
+                break
+            }
+        }
+
+        // Build the reconstructed RFC 2822 message using the outer envelope headers,
+        // replacing the multipart/encrypted wrapper with the decrypted content type.
+        var headers = removeHeader("content-type", from: outerHeaders)
+        headers = removeHeader("content-transfer-encoding", from: headers)
+        headers = removeHeader("x-mailgpg-sessionid", from: headers)
+        headers = setHeader("Content-Type", to: contentType, in: headers)
+        if let cte = contentTransferEncoding {
+            headers = setHeader("Content-Transfer-Encoding", to: cte, in: headers)
+        }
+        if foldedHeaderValue("mime-version", in: headers) == nil {
+            headers += eol + "MIME-Version: 1.0"
+        }
+
+        let fullMessage = headers + eol + eol + body
+        log.info("decrypt: reconstructed \(fullMessage.count) bytes (plaintext was \(plaintext.count) bytes)")
+        return fullMessage.data(using: .utf8) ?? plaintext
     }
 
     func verify(data: Data, signature: Data,

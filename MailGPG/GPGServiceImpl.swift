@@ -182,6 +182,26 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     /// This is the content that gets signed with `gpg --detach-sign`.
     /// RFC 3156 §5: the signature covers the complete first MIME part
     /// (part headers + blank line + body), NOT just the message body text.
+    /// Build a self-contained inner MIME entity from the original message's
+    /// Content-Type (+ Content-Transfer-Encoding) and body.  This is what gets
+    /// encrypted — so when the recipient (or our own extension) decrypts, the
+    /// output starts with MIME headers and can be parsed correctly.
+    /// Without this, multipart/alternative bodies (text + html) lose their
+    /// Content-Type wrapper and recipients see raw MIME boundary text.
+    private func buildInnerMIMEEntity(rawHeaders: String, body: Data) -> Data {
+        let origCT  = foldedHeaderValue("content-type", in: rawHeaders)
+                   ?? "text/plain; charset=utf-8"
+        let origCTE = foldedHeaderValue("content-transfer-encoding", in: rawHeaders)
+        let bodyStr = String(data: body, encoding: .utf8) ?? ""
+
+        var entity = "Content-Type: \(origCT)\r\n"
+        if let cte = origCTE {
+            entity += "Content-Transfer-Encoding: \(cte)\r\n"
+        }
+        entity += "\r\n" + bodyStr
+        return entity.data(using: .utf8) ?? body
+    }
+
     private func buildSignedPart(rawHeaders: String, body: Data) -> String {
         let eol = lineEnding(in: rawHeaders)
         let origCT  = foldedHeaderValue("content-type", in: rawHeaders)
@@ -682,13 +702,14 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                  reply: @escaping (Data?, Error?) -> Void) {
         do {
             try GPGAgent.ensureRunning()
-            let (_, body) = splitMessage(data)
+            let (rawHeaders, body) = splitMessage(data)
+            let innerMIME = buildInnerMIMEEntity(rawHeaders: rawHeaders, body: body)
             // --trust-model always: don't prompt about key trust during batch operations.
             // Each recipient gets a --recipient argument.
             var args = ["--encrypt", "--armor", "--batch", "--yes",
                         "--trust-model", "always"]
             for fp in recipientFingerprints { args += ["--recipient", fp] }
-            let (encData, stderr, code) = try gpg(args, input: body)
+            let (encData, stderr, code) = try gpg(args, input: innerMIME)
             guard code == 0 else {
                 throw GPGXPCError.make(.gpgFailed,
                     message: "gpg encrypt failed (exit \(code)): \(stderr)")
@@ -707,14 +728,15 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             log.info("signAndEncrypt: polling card-status…")
             let cardResult = try? gpg(["--card-status"])
             log.info("signAndEncrypt: card-status exit=\(cardResult?.exitCode ?? -1)")
-            let (_, body) = splitMessage(data)
+            let (rawHeaders, body) = splitMessage(data)
+            let innerMIME = buildInnerMIMEEntity(rawHeaders: rawHeaders, body: body)
             // --sign --encrypt in one pass: the signature is embedded inside
             // the encrypted envelope, so the recipient can verify after decrypting.
             var args = ["--sign", "--encrypt", "--armor", "--batch", "--yes",
                         "--trust-model", "always", "--local-user", signerKeyID]
             for fp in recipientFingerprints { args += ["--recipient", fp] }
             log.info("signAndEncrypt: gpg args=\(args.joined(separator: " "))")
-            let (encData, stderr, code) = try gpg(args, input: body)
+            let (encData, stderr, code) = try gpg(args, input: innerMIME)
             guard code == 0 else {
                 throw GPGXPCError.make(.gpgFailed, message: signError(code: code, stderr: stderr))
             }

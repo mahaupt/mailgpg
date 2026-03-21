@@ -181,10 +181,14 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     ?? data.range(of: "\n\n".data(using: .utf8)!)
         let headerData = eohRange.map { Data(data[..<$0.lowerBound]) } ?? data
         let preview = String(data: headerData, encoding: .utf8) ?? ""
+        // For inline PGP (e.g. Mailvelope), the PGP block is in the body, not the headers.
+        // Check the body as well.
+        let bodyData = eohRange.map { Data(data[$0.upperBound...]) } ?? Data()
+        let bodyStr  = String(data: bodyData, encoding: .utf8) ?? ""
         let isEncrypted = preview.contains("multipart/encrypted") ||
-                          preview.contains("BEGIN PGP MESSAGE")
+                          bodyStr.contains("-----BEGIN PGP MESSAGE-----")
         let isSigned    = preview.contains("multipart/signed") ||
-                          preview.contains("BEGIN PGP SIGNED MESSAGE")
+                          bodyStr.contains("-----BEGIN PGP SIGNED MESSAGE-----")
 
         log.debug("decodedMessage: \(data.count) bytes — encrypted=\(isEncrypted) signed=\(isSigned)")
 

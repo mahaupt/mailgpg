@@ -83,16 +83,28 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             do {
                 let encodedData: MEEncodedOutgoingMessage
 
+                // Look up the sender's secret key for signing and/or encrypting
+                // to the sender's own key (so the sent copy stays readable).
+                log.info("encode: fetching secret keys via XPC…")
+                let secretKeys = try await GPGService.shared.listSecretKeys()
+                let usable = secretKeys.filter { !$0.isRevoked && $0.expiresAt.map { $0 > Date() } ?? true }
+                log.info("encode: \(usable.count) usable key(s) of \(secretKeys.count) total")
+
+                let signerKey = usable.first(where: { $0.email.lowercased() == senderEmail })
+                                ?? usable.first
+
+                // When encrypting, include the sender's key so the sent copy is
+                // decryptable. Without this, Mail's indexer calls decodedMessage on
+                // the sent message, decryption fails, and the error triggers a KVO
+                // re-entrancy crash in Mail.app.
+                var encryptFingerprints = fingerprints
+                if shouldEncrypt, let sk = signerKey {
+                    encryptFingerprints.append(sk.fingerprint)
+                    log.info("encode: added sender key \(sk.keyID) to encryption recipients")
+                }
+
                 if shouldSign {
-                    log.info("encode: fetching secret keys via XPC…")
-                    let secretKeys = try await GPGService.shared.listSecretKeys()
-                    log.info("encode: got \(secretKeys.count) secret key(s): \(secretKeys.map { "\($0.keyID)(\($0.email)) revoked=\($0.isRevoked)" }.joined(separator: ", "))")
-
-                    let usable = secretKeys.filter { !$0.isRevoked && $0.expiresAt.map { $0 > Date() } ?? true }
-                    log.info("encode: \(usable.count) usable key(s) after filtering revoked/expired")
-
-                    guard let signerKey = usable.first(where: { $0.email.lowercased() == senderEmail })
-                                      ?? usable.first else {
+                    guard let signerKey else {
                         log.error("encode: no usable secret key found for sender \(senderEmail)")
                         completionHandler(MEMessageEncodingResult(
                             encodedMessage: nil,
@@ -100,15 +112,14 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                             encryptionError: nil))
                         return
                     }
-
                     log.info("encode: signing with key \(signerKey.keyID) (\(signerKey.email))")
 
                     if shouldEncrypt {
-                        log.info("encode: sign+encrypt to \(fingerprints.count) recipient(s)")
+                        log.info("encode: sign+encrypt to \(encryptFingerprints.count) recipient(s)")
                         encodedData = MEEncodedOutgoingMessage(
                             rawData: try await GPGService.shared.signAndEncrypt(
                                 data: body, signerKeyID: signerKey.keyID,
-                                recipientFingerprints: fingerprints),
+                                recipientFingerprints: encryptFingerprints),
                             isSigned: true, isEncrypted: true)
                         log.info("encode: sign+encrypt succeeded")
                     } else {
@@ -119,10 +130,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                         log.info("encode: sign succeeded")
                     }
                 } else {
-                    log.info("encode: encrypt-only to \(fingerprints.count) recipient(s)")
+                    log.info("encode: encrypt-only to \(encryptFingerprints.count) recipient(s)")
                     encodedData = MEEncodedOutgoingMessage(
                         rawData: try await GPGService.shared.encrypt(
-                            data: body, recipientFingerprints: fingerprints),
+                            data: body, recipientFingerprints: encryptFingerprints),
                         isSigned: false, isEncrypted: true)
                     log.info("encode: encrypt succeeded")
                 }
@@ -185,10 +196,12 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         // Check the body as well.
         let bodyData = eohRange.map { Data(data[$0.upperBound...]) } ?? Data()
         let bodyStr  = String(data: bodyData, encoding: .utf8) ?? ""
-        let isEncrypted = preview.contains("multipart/encrypted") ||
-                          bodyStr.contains("-----BEGIN PGP MESSAGE-----")
-        let isSigned    = preview.contains("multipart/signed") ||
-                          bodyStr.contains("-----BEGIN PGP SIGNED MESSAGE-----")
+        let isMIMEEncrypted = preview.contains("multipart/encrypted")
+        let isMIMESigned    = preview.contains("multipart/signed")
+        let isInlinePGP     = bodyStr.contains("-----BEGIN PGP MESSAGE-----")
+        let isInlineSigned  = bodyStr.contains("-----BEGIN PGP SIGNED MESSAGE-----")
+        let isEncrypted = isMIMEEncrypted || isInlinePGP
+        let isSigned    = isMIMESigned    || isInlineSigned
 
         log.debug("decodedMessage: \(data.count) bytes — encrypted=\(isEncrypted) signed=\(isSigned)")
 
@@ -238,17 +251,13 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                 do {
                     let (plaintext, status) = try await GPGService.shared.decrypt(data: data)
                     log.debug("decodedMessage: decrypt succeeded, status=\(String(describing: status))")
-                    result = Self.makeDecodedMessage(data: plaintext, status: status)
+                    result = Self.makeDecodedMessage(data: plaintext, status: status, wasEncrypted: true)
                 } catch let error as NSError {
                     log.error("decodedMessage: decrypt error — \(error.localizedDescription)")
-                    switch GPGXPCError(nsError: error) {
-                    case .gpgFailed:
-                        result = Self.makeDecodedMessage(
-                            data: data,
-                            status: .decryptionFailed(reason: error.localizedDescription))
-                    default:
-                        result = nil
-                    }
+                    // Return nil so Mail shows the raw message instead of crashing.
+                    // Returning a MEDecodedMessage with the original encrypted data
+                    // causes Mail's indexer to loop and trigger a KVO re-entrancy crash.
+                    result = nil
                 }
                 semaphore.signal()
             }
@@ -258,7 +267,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         return result
     }
 
-    static nonisolated func makeDecodedMessage(data: Data, status: SecurityStatus) -> MEDecodedMessage? {
+    /// - Parameter wasEncrypted: `true` when returning decrypted plaintext,
+    ///   so `MEMessageSecurityInformation.isEncrypted` is set correctly even
+    ///   when the status isn't `.encrypted` (e.g. `.signed` after decrypt).
+    static nonisolated func makeDecodedMessage(data: Data, status: SecurityStatus, wasEncrypted: Bool = false) -> MEDecodedMessage? {
         let meSigners: [MEMessageSigner] = {
             switch status {
             case .signed(let signers), .encrypted(let signers):
@@ -269,9 +281,14 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             }
         }()
 
+        let isEncrypted: Bool = {
+            if case .encrypted = status { return true }
+            return wasEncrypted
+        }()
+
         let securityInfo = MEMessageSecurityInformation(
             signers: meSigners,
-            isEncrypted: { if case .encrypted = status { return true }; return false }(),
+            isEncrypted: isEncrypted,
             signingError: { if case .signatureInvalid(let r) = status { return NSError(domain: "MailGPG", code: 1, userInfo: [NSLocalizedDescriptionKey: r]) }; return nil }(),
             encryptionError: { if case .decryptionFailed(let r) = status { return NSError(domain: "MailGPG", code: 2, userInfo: [NSLocalizedDescriptionKey: r]) }; return nil }()
         )

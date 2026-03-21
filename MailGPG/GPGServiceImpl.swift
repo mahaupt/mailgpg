@@ -76,11 +76,32 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     /// Split a raw RFC 2822 message into its header block (as String) and body (as Data).
     /// The separator between headers and body is either CRLFCRLF or LFLF.
     private func splitMessage(_ data: Data) -> (headers: String, body: Data) {
-        for sep in ["\r\n\r\n", "\n\n"].compactMap({ $0.data(using: .utf8) }) {
-            if let r = data.range(of: sep) {
-                return (String(data: data[..<r.lowerBound], encoding: .utf8) ?? "",
-                        Data(data[r.upperBound...]))
-            }
+        // Find whichever blank-line sequence comes FIRST in the message.
+        // Trying "\r\n\r\n" before "\n\n" is wrong: if the headers use LF but the
+        // body contains CRLF content (e.g. quoted text from a decrypted Mailvelope
+        // message), we'd split at a CRLF blank line *inside the body* instead of
+        // the real "\n\n" header/body separator — corrupting the header/body split
+        // and causing lineEnding() to detect CRLF, which makes Mail.app crash.
+        let crlfSep = "\r\n\r\n".data(using: .utf8)!
+        let lfSep   = "\n\n".data(using: .utf8)!
+        let crlfRange = data.range(of: crlfSep)
+        let lfRange   = data.range(of: lfSep)
+
+        let splitRange: Range<Data.Index>?
+        switch (crlfRange, lfRange) {
+        case (let c?, let l?) where c.lowerBound <= l.lowerBound:
+            splitRange = c   // \r\n\r\n comes first (or ties — prefer the longer match)
+        case (_, let l?):
+            splitRange = l   // \n\n comes first
+        case (let c?, nil):
+            splitRange = c
+        case (nil, nil):
+            splitRange = nil
+        }
+
+        if let r = splitRange {
+            return (String(data: data[..<r.lowerBound], encoding: .utf8) ?? "",
+                    Data(data[r.upperBound...]))
         }
         return (String(data: data, encoding: .utf8) ?? "", Data())
     }
@@ -803,7 +824,15 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             headers += eol + "MIME-Version: 1.0"
         }
 
-        let fullMessage = headers + eol + eol + body
+        // Normalize the body to the same line-ending style as the outer headers so
+        // the reconstructed message has consistent endings. A mismatch (e.g. LF outer
+        // headers + CRLF body from GPG output) lets splitMessage() find a \r\n\r\n
+        // inside the quoted body when a reply is composed, corrupting the header split.
+        let normalizedBody = eol == "\r\n"
+            ? body.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
+            : body.replacingOccurrences(of: "\r\n", with: "\n")
+
+        let fullMessage = headers + eol + eol + normalizedBody
         log.info("decrypt: reconstructed \(fullMessage.count) bytes (plaintext was \(plaintext.count) bytes)")
         return fullMessage.data(using: .utf8) ?? plaintext
     }

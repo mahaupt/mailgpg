@@ -358,7 +358,8 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         var inKey      = false
         var fingerprint = ""
         var keyID      = ""
-        var validity   = ""
+        var validity   = ""   // field[1]: calculated key validity — used only for isRevoked
+        var ownertrust = ""   // field[8]: explicitly-set owner trust — source of TrustLevel
         var expiry     = ""
 
         for raw in output.components(separatedBy: "\n") {
@@ -373,6 +374,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                 inKey       = true
                 keyID       = f.count > 4 ? f[4] : ""
                 validity    = f.count > 1 ? f[1] : ""
+                ownertrust  = f.count > 8 ? f[8] : ""
                 expiry      = f.count > 6 ? f[6] : ""
                 fingerprint = ""
 
@@ -391,12 +393,16 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                 let kid = fp.count >= 8 ? String(fp.suffix(8)) : keyID
                 // GPG timestamps are Unix epoch strings; empty string means "no expiry".
                 let expiryDate: Date? = Double(expiry).map { Date(timeIntervalSince1970: $0) }
+                // GPG ownertrust field uses 'n' (not trusted) which has no direct rawValue
+                // in TrustLevel — map it to .none explicitly.
+                let trust: TrustLevel = ownertrust == "n" ? .none
+                                      : TrustLevel(rawValue: ownertrust) ?? .unknown
                 results.append(KeyInfo(
                     fingerprint: fp,
                     keyID:       kid,
                     email:       email,
                     name:        name,
-                    trusted:     ["u", "f"].contains(validity),
+                    trustLevel:  trust,
                     hasSecretKey: wantSecretKeys,
                     expiresAt:   expiryDate,
                     isRevoked:   validity == "r"
@@ -489,6 +495,22 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         // Fallback: check human-readable stderr
         if stderr.lowercased().contains("good signature") { return .signed(signers: []) }
         return .signatureInvalid(reason: stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Extract the sender's email address from a raw RFC 2822 message's `From:` header.
+    /// Handles both `"Name <email>"` and plain `"email"` forms.
+    private func extractFromEmail(from data: Data) -> String? {
+        let str = String(data: data, encoding: .utf8) ?? ""
+        for line in str.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.lowercased().hasPrefix("from:") else { continue }
+            let value = String(trimmed.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            if let lt = value.firstIndex(of: "<"), let gt = value.firstIndex(of: ">"), lt < gt {
+                return String(value[value.index(after: lt)..<gt])
+            }
+            if value.contains("@") { return value }
+        }
+        return nil
     }
 
     /// Extract the fingerprint from `[GNUPG:] IMPORT_OK <flags> <fingerprint>` status output.
@@ -637,11 +659,52 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             let (plaintext, stderr, code) = try gpg(
                 ["--decrypt", "--batch", "--yes", "--status-fd", "2"],
                 input: payload)
-            guard code == 0 else {
+            // GPG exits non-zero (2) when the embedded signature can't be
+            // verified (e.g. sender's public key not in keychain), even though
+            // decryption itself succeeded. Treat DECRYPTION_OKAY as the
+            // authoritative success indicator and only hard-fail if we got
+            // neither that status nor a zero exit.
+            let decryptionOkay = stderr.contains("[GNUPG:] DECRYPTION_OKAY")
+            guard code == 0 || decryptionOkay else {
                 throw GPGXPCError.make(.gpgFailed,
                     message: "gpg decrypt failed (exit \(code)): \(stderr)")
             }
-            let status = parseDecryptStatus(stderr: stderr)
+            var status = parseDecryptStatus(stderr: stderr)
+
+            // If the embedded signature couldn't be verified due to a missing
+            // public key, try to fetch the sender's key and re-run the decrypt
+            // so we get a real GOODSIG/BADSIG result.
+            // Strategy 1: resolve by email via WKD/keyserver (prefers WKD,
+            //             which is more authoritative and doesn't require a keyID).
+            // Strategy 2: recv-keys by the key ID reported in NO_PUBKEY
+            //             (direct keyserver fetch, works when WKD isn't available).
+            if case .keyNotFound(let missingKeyID) = status {
+                var keyFetched = false
+
+                if let senderEmail = extractFromEmail(from: data) {
+                    log.info("decrypt: NO_PUBKEY — trying WKD/keyserver for \(senderEmail)")
+                    keyFetched = (try? resolveKey(email: senderEmail)) != nil
+                }
+
+                if !keyFetched && missingKeyID != "unknown" {
+                    log.info("decrypt: NO_PUBKEY — trying recv-keys for \(missingKeyID)")
+                    let (_, _, recvCode) = try gpg([
+                        "--recv-keys",
+                        "--keyserver-options", "timeout=10",
+                        missingKeyID
+                    ])
+                    keyFetched = recvCode == 0
+                }
+
+                if keyFetched {
+                    let (_, stderr2, _) = try gpg(
+                        ["--decrypt", "--batch", "--yes", "--status-fd", "2"],
+                        input: payload)
+                    status = parseDecryptStatus(stderr: stderr2)
+                    log.info("decrypt: re-verify after key fetch → \(String(describing: status))")
+                }
+            }
+
             // MEDecodedMessage requires a complete RFC 2822 message (headers + body).
             // GPG only returns the decrypted payload bytes; we must reconstruct
             // the full message from the outer envelope headers.
@@ -752,42 +815,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     func lookupKey(email: String,
                    reply: @escaping (Data?, Error?) -> Void) {
         do {
-            // ── Fast path: local keyring ─────────────────────────────────────
-            // --list-keys returns immediately; no network involved.
-            let (localOut, _, localCode) = try gpg(
-                ["--list-keys", "--with-colons", "--fixed-list-mode", email])
-            if localCode == 0 {
-                let keys = parseColonOutput(String(data: localOut, encoding: .utf8) ?? "",
-                                            wantSecretKeys: false)
-                let usable = keys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
-                if let key = usable.first ?? keys.first(where: { !$0.isRevoked }) {
-                    reply(try xpcEncode(key), nil)
-                    return
-                }
-            }
-
-            // ── Slow path: WKD then keyserver ────────────────────────────────
-            // --locate-keys finds a key by e-mail address and imports it automatically.
-            // --auto-key-locate controls the lookup order:
-            //   wkd       = Web Key Directory (HTTPS, served by the recipient's domain)
-            //   keyserver = configured keyserver, defaults to keys.openpgp.org
-            // --keyserver-options timeout=10: abort keyserver requests after 10 s so
-            //   we don't block the compose panel indefinitely on a slow/dead server.
-            // --no-auto-check-trustdb: skip trust-DB rebuild (saves ~1 s per lookup).
-            let (remoteOut, _, remoteCode) = try gpg([
-                "--locate-keys",
-                "--auto-key-locate", "wkd,keyserver",
-                "--keyserver-options", "timeout=10",
-                "--no-auto-check-trustdb",
-                "--with-colons",
-                "--fixed-list-mode",
-                email
-            ])
-            guard remoteCode == 0 else { reply(nil, nil); return }
-            let remoteKeys = parseColonOutput(String(data: remoteOut, encoding: .utf8) ?? "",
-                                              wantSecretKeys: false)
-            let usableRemote = remoteKeys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
-            if let key = usableRemote.first ?? remoteKeys.first(where: { !$0.isRevoked }) {
+            if let key = try resolveKey(email: email) {
                 reply(try xpcEncode(key), nil)
             } else {
                 reply(nil, nil)
@@ -795,6 +823,46 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         } catch {
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
         }
+    }
+
+    /// Resolve a key for `email`: checks the local keyring first, then falls
+    /// back to WKD and keyserver lookup (which auto-imports on success).
+    /// Returns the best usable key, or `nil` if none was found.
+    private func resolveKey(email: String) throws -> KeyInfo? {
+        // ── Fast path: local keyring ─────────────────────────────────────
+        let (localOut, _, localCode) = try gpg(
+            ["--list-keys", "--with-colons", "--fixed-list-mode", email])
+        if localCode == 0 {
+            let keys = parseColonOutput(String(data: localOut, encoding: .utf8) ?? "",
+                                        wantSecretKeys: false)
+            let usable = keys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+            if let key = usable.first ?? keys.first(where: { !$0.isRevoked }) {
+                return key
+            }
+        }
+
+        // ── Slow path: WKD then keyserver ────────────────────────────────
+        // --locate-keys finds a key by e-mail address and imports it automatically.
+        // --auto-key-locate controls the lookup order:
+        //   wkd       = Web Key Directory (HTTPS, served by the recipient's domain)
+        //   keyserver = configured keyserver, defaults to keys.openpgp.org
+        // --keyserver-options timeout=10: abort keyserver requests after 10 s so
+        //   we don't block the compose panel indefinitely on a slow/dead server.
+        // --no-auto-check-trustdb: skip trust-DB rebuild (saves ~1 s per lookup).
+        let (remoteOut, _, remoteCode) = try gpg([
+            "--locate-keys",
+            "--auto-key-locate", "wkd,keyserver",
+            "--keyserver-options", "timeout=10",
+            "--no-auto-check-trustdb",
+            "--with-colons",
+            "--fixed-list-mode",
+            email
+        ])
+        guard remoteCode == 0 else { return nil }
+        let remoteKeys = parseColonOutput(String(data: remoteOut, encoding: .utf8) ?? "",
+                                          wantSecretKeys: false)
+        let usableRemote = remoteKeys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+        return usableRemote.first ?? remoteKeys.first(where: { !$0.isRevoked })
     }
 
     func listSecretKeys(reply: @escaping (Data?, Error?) -> Void) {
@@ -808,6 +876,79 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         } catch {
             log.error("listSecretKeys: error — \(error.localizedDescription)")
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
+        }
+    }
+
+    func listPublicKeys(reply: @escaping (Data?, Error?) -> Void) {
+        do {
+            let (out, _, _) = try gpg(
+                ["--list-keys", "--with-colons", "--fixed-list-mode"])
+            let keys = parseColonOutput(String(data: out, encoding: .utf8) ?? "",
+                                        wantSecretKeys: false)
+            log.info("listPublicKeys: found \(keys.count) key(s)")
+            reply(try xpcEncode(keys), nil)
+        } catch {
+            log.error("listPublicKeys: error — \(error.localizedDescription)")
+            reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
+        }
+    }
+
+    func deleteKey(fingerprint: String,
+                   reply: @escaping (Error?) -> Void) {
+        do {
+            let (_, stderr, code) = try gpg(
+                ["--batch", "--yes", "--delete-keys", fingerprint])
+            guard code == 0 else {
+                throw GPGXPCError.make(.gpgFailed,
+                    message: "gpg delete-keys failed: \(stderr)")
+            }
+            log.info("deleteKey: deleted \(fingerprint)")
+            reply(nil)
+        } catch {
+            log.error("deleteKey: error — \(error.localizedDescription)")
+            reply(error as NSError)
+        }
+    }
+
+    func setTrust(fingerprint: String,
+                  level: String,
+                  reply: @escaping (Error?) -> Void) {
+        guard let trustLevel = TrustLevel(rawValue: level) else {
+            reply(GPGXPCError.make(.encodingFailed,
+                message: "Unknown trust level: \(level)"))
+            return
+        }
+        // --import-ownertrust reads "<fingerprint>:<numeric value>:\n" lines.
+        // Writing to a temp file is more reliable than stdin when GPG runs
+        // non-interactively (some builds ignore stdin with --no-tty).
+        let ownertrustLine = "\(fingerprint):\(trustLevel.gpgOwntrustValue):\n"
+        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("mailgpg-ownertrust-\(UUID().uuidString).txt")
+        do {
+            try ownertrustLine.write(to: tmpURL, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: tmpURL) }
+
+            let (_, importStderr, importCode) = try gpg(
+                ["--batch", "--import-ownertrust", tmpURL.path])
+            log.info("setTrust import: code=\(importCode) stderr=\(importStderr)")
+            guard importCode == 0 else {
+                throw GPGXPCError.make(.gpgFailed,
+                    message: "gpg import-ownertrust failed (code \(importCode)): \(importStderr)")
+            }
+
+            // Recompute the trust database so that --list-keys reflects the
+            // new ownertrust immediately (without this, 'gpg -k' still shows the
+            // old calculated validity until GPG decides to rebuild on its own).
+            let (_, checkStderr, checkCode) = try gpg(["--batch", "--check-trustdb"])
+            if checkCode != 0 {
+                log.warning("setTrust check-trustdb: code=\(checkCode) stderr=\(checkStderr)")
+            }
+
+            log.info("setTrust: \(fingerprint) → \(level)")
+            reply(nil)
+        } catch {
+            log.error("setTrust: error — \(error.localizedDescription)")
+            reply(error as NSError)
         }
     }
 

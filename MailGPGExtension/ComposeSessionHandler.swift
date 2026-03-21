@@ -6,6 +6,19 @@ import os
 
 private let log = Logger(subsystem: "com.mahaupt.mailgpg", category: "compose")
 
+extension MEEmailAddress {
+    /// Bare email address, stripped of any RFC 2822 display name and angle brackets.
+    /// e.g. "Marcel Haupt <marcel.haupt@proton.me>" → "marcel.haupt@proton.me"
+    var bareAddress: String {
+        let raw = rawString.trimmingCharacters(in: .whitespaces)
+        if let lt = raw.firstIndex(of: "<"),
+           let gt = raw.lastIndex(of: ">"), lt < gt {
+            return String(raw[raw.index(after: lt)..<gt]).lowercased()
+        }
+        return raw.lowercased()
+    }
+}
+
 class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
 
     // MARK: - Session lifecycle
@@ -32,15 +45,14 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
 
         // Mark all as loading immediately so the UI shows spinners right away.
         for address in addresses {
-            keyStatus[address.rawString.lowercased()] = .loading
+            keyStatus[address.bareAddress] = .loading
             annotations[address] = .success(withLocalizedDescription: "Checking key…")
         }
         await MainActor.run { state.recipientKeyStatus = keyStatus }
 
         // Look up each recipient's public key via XPC → GPG.
-        // lookupKey first checks the local keyring; Step 6 will add keyserver fallback.
         for address in addresses {
-            let email = address.rawString.lowercased()
+            let email = address.bareAddress
             do {
                 if let key = try await GPGService.shared.lookupKey(email: email) {
                     keyStatus[email] = .found

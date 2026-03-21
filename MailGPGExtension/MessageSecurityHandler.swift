@@ -21,7 +21,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         // surface an error letting them choose to cancel or send without encryption.
         let allRecipients = message.toAddresses + message.ccAddresses + message.bccAddresses
         let failingAddresses: [MEEmailAddress] = allRecipients.filter { address in
-            state?.recipientKeyStatus[address.rawString.lowercased()] == .notFound
+            state?.recipientKeyStatus[address.bareAddress] == .notFound
         }
 
         completionHandler(MEOutgoingMessageEncodingStatus(
@@ -61,7 +61,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         if shouldEncrypt {
             let allRecipients = message.toAddresses + message.ccAddresses + message.bccAddresses
             let missingEmails = allRecipients
-                .map { $0.rawString.lowercased() }
+                .map { $0.bareAddress }
                 .filter { state?.recipientKeyStatus[$0] != .found }
 
             if !missingEmails.isEmpty {

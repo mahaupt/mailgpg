@@ -65,68 +65,81 @@ struct ComposeSecurityView: View {
     @ObservedObject var state: ComposeSessionState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("OpenPGP")
-                .font(.headline)
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("OpenPGP")
+                    .font(.headline)
 
-            Divider()
-
-            // Status indicators
-            HStack(spacing: 10) {
-                Image(systemName: "signature")
-                    .foregroundStyle(.blue)
-                    .frame(width: 20, alignment: .center)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Signing available")
-                        .font(.callout)
-                }
-                Spacer()
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-            }
-
-            HStack(spacing: 10) {
-                Image(systemName: state.canEncrypt ? "lock.fill" : "lock.open")
-                    .foregroundStyle(state.canEncrypt ? .green : .secondary)
-                    .frame(width: 20, alignment: .center)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(state.canEncrypt ? "Encryption available" : "Encryption unavailable")
-                        .font(.callout)
-                    if !state.canEncrypt && !state.recipientKeyStatus.isEmpty {
-                        Text("Some recipients are missing a public key.")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                }
-                Spacer()
-                Image(systemName: state.canEncrypt ? "checkmark.circle.fill" : "xmark.circle.fill")
-                    .foregroundStyle(state.canEncrypt ? .green : .orange)
-            }
-
-            Text("Use Mail's toolbar buttons to sign or encrypt.")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-
-            // Recipient key status list
-            if !state.recipientKeyStatus.isEmpty {
                 Divider()
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Recipients")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                // Status indicators
+                HStack(spacing: 10) {
+                    Image(systemName: "signature")
+                        .foregroundStyle(.blue)
+                        .frame(width: 20, alignment: .center)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("Signing available")
+                            .font(.callout)
+                    }
+                    Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
 
-                    ForEach(
-                        state.recipientKeyStatus.sorted(by: { $0.key < $1.key }),
-                        id: \.key
-                    ) { email, keyStatus in
-                        RecipientRow(email: email, status: keyStatus)
+                HStack(spacing: 10) {
+                    Image(systemName: state.canEncrypt ? "lock.fill" : "lock.open")
+                        .foregroundStyle(state.canEncrypt ? .green : .secondary)
+                        .frame(width: 20, alignment: .center)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(state.canEncrypt ? "Encryption available" : "Encryption unavailable")
+                            .font(.callout)
+                        if !state.canEncrypt && !state.recipientKeyStatus.isEmpty {
+                            Text("Some recipients are missing a public key.")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Spacer()
+                    Image(systemName: state.canEncrypt ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(state.canEncrypt ? .green : .orange)
+                }
+
+                Text("Use Mail's toolbar buttons to sign or encrypt.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+
+                // Recipient key status list
+                if !state.recipientKeyStatus.isEmpty {
+                    Divider()
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Recipients")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        ForEach(
+                            state.recipientKeyStatus.sorted(by: { $0.key < $1.key }),
+                            id: \.key
+                        ) { email, keyStatus in
+                            RecipientRow(email: email, status: keyStatus)
+                        }
                     }
                 }
+
+                Divider()
+
+                NavigationLink {
+                    KeyManagementView()
+                } label: {
+                    Label("Manage Keys", systemImage: "key.2.on.ring")
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderless)
             }
+            .padding()
+            .frame(minWidth: 280)
         }
-        .padding()
-        .frame(minWidth: 280)
     }
 }
 

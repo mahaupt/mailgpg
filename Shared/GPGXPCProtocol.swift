@@ -96,6 +96,26 @@ import Foundation
         armoredKey: String,
         reply: @escaping (_ keyInfoJSON: Data?, Error?) -> Void
     )
+
+    /// List all public keys in the local keychain.
+    /// Returns a JSON-encoded `[KeyInfo]`.
+    func listPublicKeys(
+        reply: @escaping (_ keyListJSON: Data?, Error?) -> Void
+    )
+
+    /// Permanently delete a public key by fingerprint.
+    func deleteKey(
+        fingerprint: String,
+        reply: @escaping (Error?) -> Void
+    )
+
+    /// Set the owner-trust level for a key.
+    /// `level` is `TrustLevel.rawValue` — a `String` for @objc XPC compatibility.
+    func setTrust(
+        fingerprint: String,
+        level: String,
+        reply: @escaping (Error?) -> Void
+    )
 }
 
 // MARK: - JSON helpers

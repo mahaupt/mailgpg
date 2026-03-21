@@ -148,6 +148,52 @@ actor GPGService {
             }
         }
     }
+
+    func listPublicKeys() async throws -> [KeyInfo] {
+        let proxy = try connection.proxy()
+        return try await withCheckedThrowingContinuation { continuation in
+            proxy.listPublicKeys { keyListJSON, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let keyListJSON else {
+                    continuation.resume(returning: [])
+                    return
+                }
+                continuation.resume(with: keyListJSON, as: [KeyInfo].self)
+            }
+        }
+    }
+
+    func deleteKey(fingerprint: String) async throws {
+        let proxy = try connection.proxy()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            proxy.deleteKey(fingerprint: fingerprint) { error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume()
+            }
+        }
+    }
+
+    func setTrust(fingerprint: String, level: TrustLevel) async throws {
+        let proxy = try connection.proxy()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            proxy.setTrust(fingerprint: fingerprint, level: level.rawValue) { error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume()
+            }
+        }
+    }
+
+    // MARK: - Default signing key (UserDefaults, no XPC needed)
+
+    private static let defaults = UserDefaults(suiteName: "group.com.mahaupt.mailgpg")
+
+    func getDefaultSigningKey() -> String? {
+        Self.defaults?.string(forKey: "defaultSigningKeyFingerprint")
+    }
+
+    func setDefaultSigningKey(_ fingerprint: String?) {
+        Self.defaults?.set(fingerprint, forKey: "defaultSigningKeyFingerprint")
+    }
 }
 
 // MARK: - Continuation helpers

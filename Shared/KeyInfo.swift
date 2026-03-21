@@ -20,8 +20,11 @@ struct KeyInfo: Codable, Identifiable, Equatable {
     /// Human-readable name from the key's User ID packet.
     let name: String
 
-    /// Whether this key is marked as explicitly trusted in the local keychain.
-    let trusted: Bool
+    /// The owner-trust level of this key in the local keychain.
+    let trustLevel: TrustLevel
+
+    /// Whether this key is trusted (full or ultimate trust). Convenience accessor.
+    var trusted: Bool { trustLevel == .full || trustLevel == .ultimate }
 
     /// Whether a secret (private) key is available for this fingerprint.
     /// `true` means we can sign or decrypt with this key.

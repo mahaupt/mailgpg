@@ -373,7 +373,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         // Fallback: build a .signed status from the signer labels MailKit provides.
         let signers = messageSigners.compactMap { s -> Signer? in
             guard let email = s.emailAddresses.first?.rawString else { return nil }
-            return Signer(email: email, keyID: s.label, fingerprint: s.label, trusted: true)
+            return Signer(email: email, keyID: s.label, fingerprint: s.label, trustLevel: .unknown)
         }
         return SecurityDetailViewController(status: .signed(signers: signers))
     }

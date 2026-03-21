@@ -9,8 +9,10 @@ struct Signer: Equatable, Codable {
     let keyID: String
     /// Full 40-char hex fingerprint.
     let fingerprint: String
-    /// Whether this key is explicitly trusted in the local GPG keychain.
-    let trusted: Bool
+    /// Owner-trust level of this key in the local GPG keychain.
+    let trustLevel: TrustLevel
+    /// Convenience: true when trust is full or ultimate.
+    var trusted: Bool { trustLevel == .full || trustLevel == .ultimate }
 }
 
 /// The PGP security state of a received message.

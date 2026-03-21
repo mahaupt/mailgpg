@@ -441,7 +441,9 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     ///   BADSIG  <keyID> <name>    — signature present but invalid (tampered?)
     ///   NO_PUBKEY <keyID>         — can't verify: public key not in keychain
     private func parseDecryptStatus(stderr: String) -> SecurityStatus {
-        var signers: [Signer] = []
+        var pending: [(email: String, keyID: String)] = []
+        var fingerprintByKeyID: [String: String] = [:]  // keyID → full fingerprint from VALIDSIG
+        var lastKeyID: String? = nil
         var isEncrypted = false
 
         for line in stderr.components(separatedBy: "\n") {
@@ -452,8 +454,13 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                 if p.count >= 4 {
                     let keyID = p[2]
                     let name  = p[3...].joined(separator: " ")
-                    signers.append(Signer(email: name, keyID: keyID, fingerprint: keyID, trusted: true))
+                    pending.append((email: name, keyID: keyID))
+                    lastKeyID = keyID
                 }
+            } else if line.contains("[GNUPG:] VALIDSIG"), let kid = lastKeyID {
+                let p = line.components(separatedBy: " ")
+                if p.count >= 3 { fingerprintByKeyID[kid] = p[2] }
+                lastKeyID = nil
             } else if line.contains("[GNUPG:] BADSIG") {
                 let p = line.components(separatedBy: " ")
                 let keyID = p.count >= 3 ? p[2] : "unknown"
@@ -465,6 +472,11 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             }
         }
 
+        let signers = pending.map { s in
+            Signer(email: s.email, keyID: s.keyID,
+                   fingerprint: fingerprintByKeyID[s.keyID] ?? s.keyID,
+                   trustLevel: .unknown)
+        }
         if isEncrypted { return .encrypted(signers: signers) }
         if !signers.isEmpty { return .signed(signers: signers) }
         return .plain
@@ -473,28 +485,61 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     /// Parse status lines from `gpg --verify --status-fd 1`.
     private func parseVerifyStatus(stdout: String, stderr: String) -> SecurityStatus {
         let combined = stdout + "\n" + stderr
+        var keyID: String? = nil
+        var name: String? = nil
+        var fingerprint: String? = nil
+
         for line in combined.components(separatedBy: "\n") {
             if line.contains("[GNUPG:] GOODSIG") {
                 let p = line.components(separatedBy: " ")
                 if p.count >= 4 {
-                    let keyID = p[2]
-                    let name  = p[3...].joined(separator: " ")
-                    return .signed(signers: [Signer(email: name, keyID: keyID, fingerprint: keyID, trusted: true)])
+                    keyID = p[2]
+                    name  = p[3...].joined(separator: " ")
                 }
-                return .signed(signers: [])
+            } else if line.contains("[GNUPG:] VALIDSIG"), keyID != nil {
+                let p = line.components(separatedBy: " ")
+                if p.count >= 3 { fingerprint = p[2] }
             } else if line.contains("[GNUPG:] BADSIG") {
                 let p = line.components(separatedBy: " ")
-                let keyID = p.count >= 3 ? p[2] : "unknown"
-                return .signatureInvalid(reason: "Bad signature from key \(keyID)")
+                let kid = p.count >= 3 ? p[2] : "unknown"
+                return .signatureInvalid(reason: "Bad signature from key \(kid)")
             } else if line.contains("[GNUPG:] NO_PUBKEY") {
                 let p = line.components(separatedBy: " ")
-                let keyID = p.count >= 3 ? p[2] : "unknown"
-                return .keyNotFound(keyID: keyID)
+                let kid = p.count >= 3 ? p[2] : "unknown"
+                return .keyNotFound(keyID: kid)
             }
+        }
+
+        if let keyID, let name {
+            let fp = fingerprint ?? keyID
+            return .signed(signers: [Signer(email: name, keyID: keyID, fingerprint: fp, trustLevel: .unknown)])
         }
         // Fallback: check human-readable stderr
         if stderr.lowercased().contains("good signature") { return .signed(signers: []) }
         return .signatureInvalid(reason: stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Look up each signer's trust level in the local keyring and return an
+    /// updated `SecurityStatus` with the real `trustLevel` filled in.
+    /// Falls back to `.unknown` for any key that can't be found locally.
+    private func enrichWithTrust(_ status: SecurityStatus) -> SecurityStatus {
+        func trust(forFingerprint fp: String) -> TrustLevel {
+            guard let (out, _, code) = try? gpg(["--list-keys", "--with-colons",
+                                                  "--fixed-list-mode", fp]),
+                  code == 0 else { return .unknown }
+            return parseColonOutput(String(data: out, encoding: .utf8) ?? "",
+                                    wantSecretKeys: false).first?.trustLevel ?? .unknown
+        }
+        func enrich(_ signers: [Signer]) -> [Signer] {
+            signers.map { Signer(email: $0.email, keyID: $0.keyID,
+                                 fingerprint: $0.fingerprint,
+                                 trustLevel: trust(forFingerprint: $0.fingerprint)) }
+        }
+        switch status {
+        case .encrypted(let signers): return .encrypted(signers: enrich(signers))
+        case .signed(let signers):    return .signed(signers: enrich(signers))
+        default:                      return status
+        }
     }
 
     /// Extract the sender's email address from a raw RFC 2822 message's `From:` header.
@@ -709,7 +754,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             // GPG only returns the decrypted payload bytes; we must reconstruct
             // the full message from the outer envelope headers.
             let reconstructed = reconstructDecryptedMessage(original: data, plaintext: plaintext)
-            reply(reconstructed, try xpcEncode(status), nil)
+            reply(reconstructed, try xpcEncode(enrichWithTrust(status)), nil)
         } catch {
             reply(nil, nil, error as NSError)
         }
@@ -803,7 +848,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
             let stdout = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
             let stderr = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let status = parseVerifyStatus(stdout: stdout, stderr: stderr)
+            let status = enrichWithTrust(parseVerifyStatus(stdout: stdout, stderr: stderr))
             reply(try xpcEncode(status), nil)
         } catch {
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))

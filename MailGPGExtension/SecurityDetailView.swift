@@ -115,7 +115,7 @@ private struct SignerRow: View {
                     .font(.callout)
                     .textSelection(.enabled)
                 Spacer()
-                TrustBadge(trusted: signer.trusted)
+                TrustLevelBadge(level: signer.trustLevel)
             }
             Text("Key ID: \(signer.keyID)")
                 .font(.caption)
@@ -129,21 +129,6 @@ private struct SignerRow: View {
         .padding(8)
         .background(.quaternary)
         .clipShape(RoundedRectangle(cornerRadius: 6))
-    }
-}
-
-/// Green "Trusted" or grey "Untrusted" pill.
-private struct TrustBadge: View {
-    let trusted: Bool
-
-    var body: some View {
-        Text(trusted ? "Trusted" : "Untrusted")
-            .font(.caption2)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(trusted ? Color.green.opacity(0.15) : Color.secondary.opacity(0.15))
-            .foregroundStyle(trusted ? .green : .secondary)
-            .clipShape(Capsule())
     }
 }
 
@@ -169,14 +154,14 @@ private struct LabeledRow: View {
 
 #Preview("Encrypted + signed") {
     SecurityDetailView(status: .encrypted(signers: [
-        Signer(email: "alice@example.com", keyID: "AB12CD34", fingerprint: "AB12 CD34 EF56 7890 1234  5678 9ABC DEF0 1234 5678", trusted: true),
-        Signer(email: "bob@example.com",   keyID: "FF001122", fingerprint: "FF00 1122 3344 5566 7788  99AA BBCC DDEE FF00 1122", trusted: false),
+        Signer(email: "alice@example.com", keyID: "AB12CD34", fingerprint: "AB12CD34EF5678901234567890ABCDEF01234567", trustLevel: .full),
+        Signer(email: "bob@example.com",   keyID: "FF001122", fingerprint: "FF0011223344556677889900AABBCCDDEEFF0011", trustLevel: .unknown),
     ]))
 }
 
 #Preview("Signed") {
     SecurityDetailView(status: .signed(signers: [
-        Signer(email: "alice@example.com", keyID: "AB12CD34", fingerprint: "AB12 CD34 EF56 7890 1234  5678 9ABC DEF0 1234 5678", trusted: true),
+        Signer(email: "alice@example.com", keyID: "AB12CD34", fingerprint: "AB12CD34EF5678901234567890ABCDEF01234567", trustLevel: .ultimate),
     ]))
 }
 

@@ -98,7 +98,6 @@ final class GPGServiceConnection {
 
         conn.resume()
         connection = conn
-        retryCount = 0
         setAvailable(true)
         print("[GPGServiceConnection] Connected to \(serviceName)")
     }
@@ -109,6 +108,7 @@ final class GPGServiceConnection {
 
         guard retryCount < maxRetries else {
             print("[GPGServiceConnection] Max retries reached — giving up")
+            retryCount = 0   // reset so the next user-triggered proxy() call gets a fresh round
             return
         }
 

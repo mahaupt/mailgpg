@@ -31,16 +31,47 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     // MARK: - Encoding (outgoing)
 
     func getEncodingStatus(for message: MEMessage, composeContext: MEComposeContext, completionHandler: @escaping (MEOutgoingMessageEncodingStatus) -> Void) {
-        // Always report canSign/canEncrypt: true and no failing addresses.
-        // Populating addressesFailingEncryption here causes Mail to show a popup
-        // mid-composition (e.g. when adding a recipient whose key hasn't loaded yet).
-        // Missing keys are caught in encode() only when the user actually sends.
-        completionHandler(MEOutgoingMessageEncodingStatus(
-            canSign: true,
-            canEncrypt: true,
-            securityError: nil,
-            addressesFailingEncryption: []
-        ))
+        // If we already know whether the host app is reachable, respond immediately.
+        if let available = HostAppReachability.shared.isAvailable {
+            completionHandler(Self.encodingStatus(hostAvailable: available))
+            return
+        }
+
+        // Unknown state — only one caller should ping; the rest return optimistic
+        // status for now (the banner in the compose panel covers the gap).
+        guard HostAppReachability.shared.beginCheckIfNeeded() else {
+            completionHandler(Self.encodingStatus(hostAvailable: true))
+            return
+        }
+
+        // The fixed ping() fails fast when the host app is offline (sub-second).
+        Task {
+            let available: Bool
+            do {
+                _ = try await GPGService.shared.ping()
+                available = true
+            } catch {
+                available = false
+            }
+            HostAppReachability.shared.isAvailable = available
+            completionHandler(Self.encodingStatus(hostAvailable: available))
+        }
+    }
+
+    private static func encodingStatus(hostAvailable: Bool) -> MEOutgoingMessageEncodingStatus {
+        if hostAvailable {
+            // Don't populate addressesFailingEncryption here — that causes Mail to
+            // show a popup mid-composition when a recipient's key hasn't loaded yet.
+            return MEOutgoingMessageEncodingStatus(
+                canSign: true, canEncrypt: true, securityError: nil,
+                addressesFailingEncryption: [])
+        } else {
+            return MEOutgoingMessageEncodingStatus(
+                canSign: false, canEncrypt: false,
+                securityError: GPGXPCError.make(.hostAppNotRunning,
+                    message: "MailGPG host app is not running. Please open it to enable GPG operations."),
+                addressesFailingEncryption: [])
+        }
     }
 
     func encode(_ message: MEMessage, composeContext: MEComposeContext, completionHandler: @escaping (MEMessageEncodingResult) -> Void) {

@@ -3,6 +3,35 @@
 
 import Foundation
 
+// MARK: - HostAppReachability
+
+/// Thread-safe shared state tracking whether the GPG host app is reachable.
+/// `nil` = not yet checked, `true` = confirmed, `false` = unreachable.
+/// Updated by GPGService after ping attempts and connection changes;
+/// read by MessageSecurityHandler to drive the compose button indicator.
+final class HostAppReachability: @unchecked Sendable {
+    static let shared = HostAppReachability()
+    private let lock = NSLock()
+    private var _isAvailable: Bool?
+    private var _isChecking = false
+
+    var isAvailable: Bool? {
+        get { lock.lock(); defer { lock.unlock() }; return _isAvailable }
+        set { lock.lock(); defer { lock.unlock() }; _isAvailable = newValue; _isChecking = false }
+    }
+
+    /// Atomically claim the "checking" slot. Returns `true` if this caller
+    /// should perform the ping; `false` if another caller is already doing it.
+    func beginCheckIfNeeded() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard _isAvailable == nil, !_isChecking else { return false }
+        _isChecking = true
+        return true
+    }
+}
+
+// MARK: - GPGService
+
 /// The public API surface for GPG operations inside the Mail extension.
 ///
 /// All methods are `async throws` — callers just `await` them like any
@@ -16,18 +45,52 @@ actor GPGService {
 
     private let connection = GPGServiceConnection()
 
+    private init() {
+        // Permanently wire connection availability changes to HostAppReachability.
+        // true  = connect() called optimistically → nil (re-checking, not confirmed yet)
+        // false = connection failed / host app quit → false (confirmed unavailable)
+        connection.onAvailabilityChanged = { available in
+            HostAppReachability.shared.isAvailable = available ? nil : false
+        }
+    }
+
     // MARK: - Diagnostics
 
     /// Calls the host app and returns its GPG version string.
     /// A successful result confirms the full XPC round-trip is working.
     func ping() async throws -> String {
         let proxy = try connection.proxy()
-        return try await withCheckedThrowingContinuation { continuation in
+
+        // Save the existing availability callback so we can restore it after.
+        let savedHandler = connection.onAvailabilityChanged
+
+        // When XPC drops an in-flight reply block (connection invalidated before
+        // the host app replies), withCheckedThrowingContinuation leaks its
+        // continuation. Fix: hook into onAvailabilityChanged so that if the
+        // connection dies before the reply arrives, we resume with an error.
+        // OneShotRelay ensures only one resume regardless of which path fires first.
+        let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let relay = OneShotRelay(continuation)
+
+            connection.onAvailabilityChanged = { [savedHandler] available in
+                savedHandler?(available)
+                if !available {
+                    relay.resume(throwing: GPGXPCError.make(.hostAppNotRunning,
+                        message: "MailGPG host app is not running. Please open it to enable GPG operations."))
+                }
+            }
+
             proxy.ping { version, error in
-                if let error { continuation.resume(throwing: error); return }
-                continuation.resume(returning: version ?? "(no version returned)")
+                if let error { relay.resume(throwing: error); return }
+                relay.resume(returning: version ?? "(no version returned)")
             }
         }
+
+        // Back on the actor's executor — restore the permanent handler and
+        // mark the host app as confirmed available.
+        connection.onAvailabilityChanged = savedHandler
+        HostAppReachability.shared.isAvailable = true
+        return result
     }
 
     // MARK: - Outgoing
@@ -215,5 +278,35 @@ private extension CheckedContinuation where E == Error, T: Decodable {
         } catch {
             resume(throwing: error)
         }
+    }
+}
+
+// MARK: - OneShotRelay
+
+/// Thread-safe wrapper around a CheckedContinuation that guarantees exactly
+/// one resume call even when two paths race (XPC reply vs. connection drop).
+/// Used exclusively by ping() to avoid continuation leaks when the host app
+/// is not running and XPC drops the reply block.
+private final class OneShotRelay<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var done = false
+    private let continuation: CheckedContinuation<T, Error>
+
+    init(_ continuation: CheckedContinuation<T, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(returning value: T) {
+        lock.lock(); defer { lock.unlock() }
+        guard !done else { return }
+        done = true
+        continuation.resume(returning: value)
+    }
+
+    func resume(throwing error: Error) {
+        lock.lock(); defer { lock.unlock() }
+        guard !done else { return }
+        done = true
+        continuation.resume(throwing: error)
     }
 }

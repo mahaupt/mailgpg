@@ -63,10 +63,24 @@ enum RecipientKeyStatus: Equatable {
 
 struct ComposeSecurityView: View {
     @ObservedObject var state: ComposeSessionState
+    @State private var hostAppAvailable: Bool? = nil
 
     var body: some View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
+                if hostAppAvailable == false {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.yellow)
+                        Text("MailGPG host app is not running. Open it to enable GPG operations.")
+                            .font(.caption)
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.yellow.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
+                }
+
                 Text("OpenPGP")
                     .font(.headline)
 
@@ -137,8 +151,18 @@ struct ComposeSecurityView: View {
                 }
                 .buttonStyle(.borderless)
             }
-            .padding()
+            .padding(.horizontal)
+            .padding(.top, 40)
+            .padding(.bottom, 40)
             .frame(minWidth: 280)
+            .task {
+                do {
+                    _ = try await GPGService.shared.ping()
+                    hostAppAvailable = true
+                } catch {
+                    hostAppAvailable = false
+                }
+            }
         }
     }
 }

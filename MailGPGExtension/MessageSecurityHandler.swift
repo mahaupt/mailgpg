@@ -13,22 +13,15 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     // MARK: - Encoding (outgoing)
 
     func getEncodingStatus(for message: MEMessage, composeContext: MEComposeContext, completionHandler: @escaping (MEOutgoingMessageEncodingStatus) -> Void) {
-        let state = sessionState(for: message)
-
-        // Always report canEncrypt: true so the native encrypt button is available.
-        // Recipients without keys are annotated as warnings but don't disable the button.
-        // If the user sends with encryption on and keys are missing, encode() will
-        // surface an error letting them choose to cancel or send without encryption.
-        let allRecipients = message.toAddresses + message.ccAddresses + message.bccAddresses
-        let failingAddresses: [MEEmailAddress] = allRecipients.filter { address in
-            state?.recipientKeyStatus[address.bareAddress] == .notFound
-        }
-
+        // Always report canSign/canEncrypt: true and no failing addresses.
+        // Populating addressesFailingEncryption here causes Mail to show a popup
+        // mid-composition (e.g. when adding a recipient whose key hasn't loaded yet).
+        // Missing keys are caught in encode() only when the user actually sends.
         completionHandler(MEOutgoingMessageEncodingStatus(
             canSign: true,
             canEncrypt: true,
             securityError: nil,
-            addressesFailingEncryption: failingAddresses
+            addressesFailingEncryption: []
         ))
     }
 
@@ -62,7 +55,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             let allRecipients = message.toAddresses + message.ccAddresses + message.bccAddresses
             let missingEmails = allRecipients
                 .map { $0.bareAddress }
-                .filter { state?.recipientKeyStatus[$0] != .found }
+                .filter { state?.recipientKeyStatus[$0] == .notFound }
+            let loadingEmails = allRecipients
+                .map { $0.bareAddress }
+                .filter { state?.recipientKeyStatus[$0] == .loading }
 
             if !missingEmails.isEmpty {
                 let list = missingEmails.joined(separator: ", ")
@@ -75,6 +71,19 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                         userInfo: [NSLocalizedDescriptionKey:
                             "The following recipients don't have a public key:\n\(list)\n\n" +
                             "Turn off encryption to send without it, or add the missing keys."])))
+                return
+            }
+
+            if !loadingEmails.isEmpty {
+                let list = loadingEmails.joined(separator: ", ")
+                log.warning("encode: key lookup still in progress for: \(list)")
+                completionHandler(MEMessageEncodingResult(
+                    encodedMessage: nil,
+                    signingError: nil,
+                    encryptionError: NSError(
+                        domain: "com.mahaupt.mailgpg", code: 4,
+                        userInfo: [NSLocalizedDescriptionKey:
+                            "Still looking up keys for:\n\(list)\n\nPlease try again in a moment."])))
                 return
             }
         }

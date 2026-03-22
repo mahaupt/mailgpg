@@ -10,6 +10,24 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
     static let shared = MessageSecurityHandler()
 
+    /// Unified cache keyed by message UUID (`X-Universally-Unique-Identifier`).
+    /// Mail calls encode() up to 3 times for the same logical message (send,
+    /// auto-save, Sent copy) with slightly different rawData each time. It also
+    /// calls decodedMessage() on the encrypted output for indexing. Both paths
+    /// share this UUID-based cache so only the FIRST encode hits GPG — all
+    /// subsequent encode and decode calls return instantly.
+    var uuidCache: [String: UUIDCacheEntry] = [:]
+    /// Serializes access to uuidCache. Mail calls decodedMessage() from multiple
+    /// threads concurrently — without a lock they all miss the cache and start
+    /// parallel GPG decrypts of the same 17 MB message.
+    private let cacheLock = NSLock()
+
+    struct UUIDCacheEntry {
+        let encodeResult: MEMessageEncodingResult?
+        let decodedMessage: MEDecodedMessage?
+    }
+
+
     // MARK: - Encoding (outgoing)
 
     func getEncodingStatus(for message: MEMessage, composeContext: MEComposeContext, completionHandler: @escaping (MEOutgoingMessageEncodingStatus) -> Void) {
@@ -45,6 +63,35 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
         let rawPreview = String(data: body.prefix(400), encoding: .utf8) ?? "(non-utf8)"
         log.info("encode: rawData size=\(body.count) bytes, sender=\(message.fromAddress.rawString), preview=\(rawPreview)")
+
+        // UUID-based cache: return a previous encode result for subsequent calls
+        // with the same message UUID. This reduces 3 GPG calls to 1.
+        // IMPORTANT: Skip caching for auto-saved drafts — they contain partial data
+        // (X-Apple-Mail-Remote-Attachments: YES means attachments are server-side
+        // references, not inlined). If we cache the draft result, the actual send
+        // (which has full attachments inlined → much larger rawData) would get the
+        // smaller draft result back, causing Mail to freeze.
+        let messageUUID = header("x-universally-unique-identifier", in: message)
+        // Auto-saved drafts have X-Apple-Mail-Remote-Attachments: YES — attachments
+        // are server-side references, not inlined. Encrypting this partial message
+        // wastes a large GPG call and the encrypted draft body is useless (attachment
+        // refs become encrypted gibberish). Skip encoding entirely for auto-saves so
+        // only the actual send (with all attachments inlined) goes through GPG.
+        let isAutoSave = header("x-apple-auto-saved", in: message) != nil
+                      || header("x-apple-mail-remote-attachments", in: message) != nil
+        if isAutoSave {
+            log.info("encode: auto-save draft detected — passing through unchanged")
+            completionHandler(MEMessageEncodingResult(encodedMessage: nil, signingError: nil, encryptionError: nil))
+            return
+        }
+        cacheLock.lock()
+        let cachedEncode = messageUUID.flatMap { uuidCache[$0]?.encodeResult }
+        cacheLock.unlock()
+        if let cached = cachedEncode, let uuid = messageUUID {
+            log.info("encode: UUID cache hit for \(uuid) (\(body.count) bytes)")
+            completionHandler(cached)
+            return
+        }
 
         let senderEmail  = message.fromAddress.rawString.lowercased()
         let state = sessionState(for: message)
@@ -149,8 +196,33 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
                 let preview = String(data: encodedData.rawData.prefix(300), encoding: .utf8) ?? "(non-utf8)"
                 log.info("encode: encoded \(encodedData.rawData.count) bytes — first 300: \(preview)")
+
+                let encodeResult = MEMessageEncodingResult(encodedMessage: encodedData, signingError: nil, encryptionError: nil)
+
+                // Store in UUID cache: both the encode result (so subsequent
+                // encode calls for the same message return instantly) and a
+                // pre-built decoded message (so decodedMessage() on the encrypted
+                // output also returns instantly without a GPG decrypt).
+                if let uuid = messageUUID {
+                    let signer = signerKey.map {
+                        Signer(email: $0.email, keyID: $0.keyID,
+                               fingerprint: $0.fingerprint, trustLevel: $0.trustLevel)
+                    }
+                    let signers = signer.map { [$0] } ?? []
+                    let status: SecurityStatus = shouldEncrypt
+                        ? .encrypted(signers: signers)
+                        : .signed(signers: signers)
+                    let decoded = Self.makeDecodedMessage(data: body, status: status,
+                                                          wasEncrypted: shouldEncrypt)
+                    self.cacheLock.lock()
+                    self.uuidCache[uuid] = UUIDCacheEntry(
+                        encodeResult: encodeResult, decodedMessage: decoded)
+                    self.cacheLock.unlock()
+                    log.info("encode: cached under UUID \(uuid)")
+                }
+
                 log.info("encode: calling completionHandler with \(encodedData.rawData.count) bytes")
-                completionHandler(MEMessageEncodingResult(encodedMessage: encodedData, signingError: nil, encryptionError: nil))
+                completionHandler(encodeResult)
 
             } catch {
                 log.error("encode: failed — \(error.localizedDescription)")
@@ -188,14 +260,44 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
     // MARK: - Decoding (incoming)
 
+    /// Extract a header value from raw RFC 2822 message data (case-insensitive).
+    private static func headerValue(_ name: String, in data: Data) -> String? {
+        let eoh = data.range(of: Data("\r\n\r\n".utf8))
+               ?? data.range(of: Data("\n\n".utf8))
+        let headerData = eoh.map { Data(data[..<$0.lowerBound]) } ?? data.prefix(4096)
+        guard let headerStr = String(data: headerData, encoding: .utf8) else { return nil }
+        let target = name.lowercased() + ":"
+        for line in headerStr.components(separatedBy: "\n") {
+            let trimmed = line.hasSuffix("\r") ? String(line.dropLast()) : line
+            if trimmed.lowercased().hasPrefix(target) {
+                return trimmed.dropFirst(target.count).trimmingCharacters(in: .whitespaces)
+            }
+        }
+        return nil
+    }
+
     func decodedMessage(forMessageData data: Data) -> MEDecodedMessage? {
+        // Cache lookup: try UUID first (for messages we just encoded), then
+        // Message-Id (for incoming messages from the server).
+        let messageUUID = Self.headerValue("x-universally-unique-identifier", in: data)
+        let messageId   = Self.headerValue("message-id", in: data)
+        let cacheKey = messageUUID ?? messageId
+
+        cacheLock.lock()
+        if let key = cacheKey, let cached = uuidCache[key]?.decodedMessage {
+            cacheLock.unlock()
+            log.debug("decodedMessage: cache hit for \(key) (\(data.count) bytes)")
+            return cached
+        }
+        cacheLock.unlock()
+
         // Quick pre-check: only process messages that look like PGP content.
         // Returning nil for everything else tells Mail "not my message" and avoids:
-        //   • unnecessary XPC round-trips for plaintext mail
-        //   • calling gpg --decrypt on multipart/signed mails we just sent, which
+        //   - unnecessary XPC round-trips for plaintext mail
+        //   - calling gpg --decrypt on multipart/signed mails we just sent, which
         //     would produce a spurious "decryption failed" banner in Sent
         // Scan the entire header block rather than a fixed byte prefix: routing
-        // headers added by Gmail, Exchange, etc. (DKIM, ARC, Received, …) can
+        // headers added by Gmail, Exchange, etc. (DKIM, ARC, Received, ...) can
         // push Content-Type well past 4 KB.
         let eohRange = data.range(of: "\r\n\r\n".data(using: .utf8)!)
                     ?? data.range(of: "\n\n".data(using: .utf8)!)
@@ -273,6 +375,18 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         }
 
         semaphore.wait()
+
+        // Cache the decoded result so subsequent calls (Mail's indexer often
+        // calls decodedMessage 10+ times for the same message) return instantly.
+        if let key = cacheKey, let decoded = result {
+            cacheLock.lock()
+            if uuidCache[key] == nil {
+                uuidCache[key] = UUIDCacheEntry(encodeResult: nil, decodedMessage: decoded)
+            }
+            cacheLock.unlock()
+            log.debug("decodedMessage: cached under \(key)")
+        }
+
         return result
     }
 

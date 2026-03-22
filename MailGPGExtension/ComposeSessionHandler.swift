@@ -31,6 +31,7 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
     func mailComposeSessionDidEnd(_ session: MEComposeSession) {
         log.info("session ended: \(session.sessionID)")
         ComposeStateStore.shared.remove(session.sessionID)
+        MessageSecurityHandler.shared.uuidCache.removeAll()
     }
 
     // MARK: - Recipient annotations

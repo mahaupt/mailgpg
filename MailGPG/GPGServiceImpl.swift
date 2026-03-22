@@ -59,15 +59,38 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             let inPipe = Pipe()
             process.standardInput = inPipe
             try process.run()
-            inPipe.fileHandleForWriting.write(input)
-            inPipe.fileHandleForWriting.closeFile()   // signal EOF to GPG
+            // Write stdin on a background thread to avoid deadlock: if the input
+            // is larger than the pipe buffer (~64 KB), the write blocks until GPG
+            // consumes some data. GPG in turn may block writing to stdout/stderr
+            // once *their* pipe buffers fill. Reading stdout/stderr below on this
+            // thread breaks the cycle.
+            DispatchQueue.global(qos: .userInitiated).async {
+                inPipe.fileHandleForWriting.write(input)
+                inPipe.fileHandleForWriting.closeFile()   // signal EOF to GPG
+            }
         } else {
             try process.run()
         }
-        process.waitUntilExit()
 
-        let stdout  = outPipe.fileHandleForReading.readDataToEndOfFile()
-        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        // Read stdout and stderr concurrently BEFORE waitUntilExit to prevent
+        // deadlock. Both pipes have ~64 KB buffers; if either fills, GPG blocks.
+        // Reading them sequentially can still deadlock when GPG writes to the
+        // pipe we're not currently draining. Reading in parallel avoids this.
+        var stdout  = Data()
+        var errData = Data()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            stdout = outPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            group.leave()
+        }
+        group.wait()
+        process.waitUntilExit()
         return (stdout, String(data: errData, encoding: .utf8) ?? "", process.terminationStatus)
     }
 
@@ -284,7 +307,6 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         let (rawHeaders, _) = splitMessage(original)
         let eol = lineEnding(in: rawHeaders)
         let origCTE = foldedHeaderValue("content-transfer-encoding", in: rawHeaders)
-        let encStr = String(data: encrypted, encoding: .utf8) ?? ""
 
         // Build full RFC 2822 message with updated envelope headers.
         var headers = setHeader(
@@ -302,22 +324,27 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             headers += eol + "MIME-Version: 1.0"
         }
 
-        let mime = headers + eol +
-            eol +
-            "--\(boundary)" + eol +
-            "Content-Type: application/pgp-encrypted" + eol +
-            "Content-Disposition: attachment" + eol +
-            eol +
-            "Version: 1" + eol +
-            eol +
-            "--\(boundary)" + eol +
-            "Content-Type: application/octet-stream; name=\"encrypted.asc\"" + eol +
-            "Content-Disposition: inline; filename=\"encrypted.asc\"" + eol +
-            eol +
-            encStr + eol +
-            "--\(boundary)--" + eol
-
-        return mime.data(using: .utf8) ?? Data()
+        // Build MIME using Data concatenation to avoid creating multi-MB
+        // intermediate String copies (String + on large strings is O(n) per op).
+        var result = Data()
+        let eolBytes = Data(eol.utf8)
+        result.append(Data(headers.utf8))
+        result.append(eolBytes)
+        result.append(eolBytes)
+        result.append(Data("--\(boundary)".utf8)); result.append(eolBytes)
+        result.append(Data("Content-Type: application/pgp-encrypted".utf8)); result.append(eolBytes)
+        result.append(Data("Content-Disposition: attachment".utf8)); result.append(eolBytes)
+        result.append(eolBytes)
+        result.append(Data("Version: 1".utf8)); result.append(eolBytes)
+        result.append(eolBytes)
+        result.append(Data("--\(boundary)".utf8)); result.append(eolBytes)
+        result.append(Data("Content-Type: application/octet-stream; name=\"encrypted.asc\"".utf8)); result.append(eolBytes)
+        result.append(Data("Content-Disposition: inline; filename=\"encrypted.asc\"".utf8)); result.append(eolBytes)
+        result.append(eolBytes)
+        result.append(encrypted)
+        result.append(eolBytes)
+        result.append(Data("--\(boundary)--".utf8)); result.append(eolBytes)
+        return result
     }
 
     /// Extract a header value from a block of RFC 2822 headers, collecting

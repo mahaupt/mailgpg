@@ -13,11 +13,13 @@
 		1F3247AD2F69F9C000156831 /* KeyInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A92F69F9C000156831 /* KeyInfo.swift */; };
 		1F3247AE2F69F9C000156831 /* GPGXPCError.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A72F69F9C000156831 /* GPGXPCError.swift */; };
 		1F3247AF2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */; };
-		B865AAE3664A45DB8D022CEA /* TrustLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E740A487D0E04695BEC7B959 /* TrustLevel.swift */; };
-		C44923A61DF642298128C68C /* TrustLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E740A487D0E04695BEC7B959 /* TrustLevel.swift */; };
 		1F5965DA2F69928A000486DC /* MailGPGExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 1F5965C12F69928A000486DC /* MailGPGExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		1F795F852F712CED00FF6227 /* SystemStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F795F842F712CED00FF6227 /* SystemStatus.swift */; };
+		1F795F862F712CED00FF6227 /* SystemStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F795F842F712CED00FF6227 /* SystemStatus.swift */; };
 		1FE946972F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */; };
 		1FE946982F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */; };
+		B865AAE3664A45DB8D022CEA /* TrustLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E740A487D0E04695BEC7B959 /* TrustLevel.swift */; };
+		C44923A61DF642298128C68C /* TrustLevel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E740A487D0E04695BEC7B959 /* TrustLevel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -51,6 +53,7 @@
 		1F5965AF2F699227000486DC /* MailGPG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MailGPG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965C12F69928A000486DC /* MailGPGExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MailGPGExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965EB2F69A42F000486DC /* Claude.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude.md; sourceTree = "<group>"; };
+		1F795F842F712CED00FF6227 /* SystemStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatus.swift; sourceTree = "<group>"; };
 		1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityStatus.swift; sourceTree = "<group>"; };
 		E740A487D0E04695BEC7B959 /* TrustLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustLevel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -102,6 +105,7 @@
 		1F3247A62F69F97400156831 /* Shared */ = {
 			isa = PBXGroup;
 			children = (
+				1F795F842F712CED00FF6227 /* SystemStatus.swift */,
 				1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */,
 				1F3247A72F69F9C000156831 /* GPGXPCError.swift */,
 				1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */,
@@ -240,6 +244,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1F795F862F712CED00FF6227 /* SystemStatus.swift in Sources */,
 				1F3247AA2F69F9C000156831 /* KeyInfo.swift in Sources */,
 				1FE946972F6AAE4C0049A0F8 /* SecurityStatus.swift in Sources */,
 				1F3247AB2F69F9C000156831 /* GPGXPCError.swift in Sources */,
@@ -256,6 +261,7 @@
 				1F3247AD2F69F9C000156831 /* KeyInfo.swift in Sources */,
 				1F3247AE2F69F9C000156831 /* GPGXPCError.swift in Sources */,
 				1F3247AF2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */,
+				1F795F852F712CED00FF6227 /* SystemStatus.swift in Sources */,
 				C44923A61DF642298128C68C /* TrustLevel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -413,6 +419,7 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -459,6 +466,7 @@
 				ENABLE_RESOURCE_ACCESS_PHOTO_LIBRARY = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

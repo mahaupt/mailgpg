@@ -150,6 +150,15 @@ struct ComposeSecurityView: View {
                         .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderless)
+
+                NavigationLink {
+                    DiagnosticsView()
+                } label: {
+                    Label("Diagnostics", systemImage: "stethoscope")
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderless)
             }
             .padding(.horizontal)
             .padding(.top, 40)

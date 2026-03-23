@@ -1,21 +1,15 @@
-//
-//  MailGPGApp.swift
-//  MailGPG
-//
-//  Created by Marcel Haupt on 17.03.26.
-//
+// MailGPGApp.swift
+// MailGPG
 
 import SwiftUI
 
 @main
 struct MailGPGApp: App {
-    // Connects our AppDelegate to the SwiftUI lifecycle.
-    // SwiftUI still owns the app loop; AppDelegate gets the launch callback.
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        WindowGroup {
-            ContentView()
-        }
+        // No windows — the host app runs headless as an XPC service.
+        // All user interaction happens through the Mail extension.
+        Settings { EmptyView() }
     }
 }

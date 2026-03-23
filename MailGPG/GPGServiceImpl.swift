@@ -680,6 +680,63 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         }
     }
 
+    func getSystemStatus(reply: @escaping (Data?, Error?) -> Void) {
+        // GPG binary
+        let gpgPath    = try? GPGLocator.locate()
+        let gpgVersion = gpgPath.flatMap { try? GPGLocator.version(at: $0) }
+
+        // gpg-agent
+        let agentRunning = (try? GPGAgent.ensureRunning()) ?? false
+
+        // Pinentry
+        let pinentry = GPGAgent.checkPinentry()
+        let state: SystemStatus.PinentryState
+        var configuredPath: String?
+        var availablePath: String?
+        switch pinentry {
+        case .ok(let path):
+            state = .ok
+            configuredPath = path
+        case .fixable(let path):
+            state = .fixable
+            availablePath = path
+        case .nonMac(let configured, let fix):
+            state = .nonMac
+            configuredPath = configured
+            availablePath = fix
+        case .notInstalled:
+            state = .notInstalled
+        }
+
+        let status = SystemStatus(
+            gpgPath: gpgPath,
+            gpgVersion: gpgVersion,
+            agentRunning: agentRunning,
+            pinentryState: state,
+            pinentryConfiguredPath: configuredPath,
+            pinentryAvailablePath: availablePath
+        )
+        do {
+            reply(try xpcEncode(status), nil)
+        } catch {
+            reply(nil, error)
+        }
+    }
+
+    func fixPinentry(reply: @escaping (Error?) -> Void) {
+        guard let path = GPGAgent.availableMacPinentry else {
+            reply(GPGXPCError.make(.gpgNotFound,
+                message: "No pinentry-mac binary found. Install it via Homebrew: brew install pinentry-mac"))
+            return
+        }
+        do {
+            try GPGAgent.configurePinentry(path: path)
+            reply(nil)
+        } catch {
+            reply(error)
+        }
+    }
+
     // MARK: - Outgoing
 
     func sign(data: Data, signerKeyID: String,

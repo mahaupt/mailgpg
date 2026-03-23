@@ -30,6 +30,15 @@ import Foundation
     /// or an error if GPG isn't found. Use this to verify the XPC bridge works.
     func ping(reply: @escaping (_ gpgVersion: String?, Error?) -> Void)
 
+    /// Returns a full snapshot of the GPG environment: binary path/version,
+    /// gpg-agent status, and pinentry configuration state.
+    /// Reply carries a JSON-encoded `SystemStatus`.
+    func getSystemStatus(reply: @escaping (_ statusJSON: Data?, Error?) -> Void)
+
+    /// Write `pinentry-mac` to `gpg-agent.conf` and restart the agent.
+    /// Fails if no `pinentry-mac` binary is found on this machine.
+    func fixPinentry(reply: @escaping (Error?) -> Void)
+
     // MARK: - Outgoing (signing / encryption)
 
     /// Sign `data` using the secret key identified by `signerKeyID`.

@@ -93,6 +93,31 @@ actor GPGService {
         return result
     }
 
+    /// Returns a full snapshot of the GPG environment on the host machine.
+    func getSystemStatus() async throws -> SystemStatus {
+        let proxy = try connection.proxy()
+        return try await withCheckedThrowingContinuation { continuation in
+            proxy.getSystemStatus { statusJSON, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let statusJSON else {
+                    continuation.resume(throwing: GPGXPCError.make(.encodingFailed)); return
+                }
+                continuation.resume(with: statusJSON, as: SystemStatus.self)
+            }
+        }
+    }
+
+    /// Write `pinentry-mac` to `gpg-agent.conf` and restart the agent.
+    func fixPinentry() async throws {
+        let proxy = try connection.proxy()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            proxy.fixPinentry { error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume()
+            }
+        }
+    }
+
     // MARK: - Outgoing
 
     func sign(data: Data, signerKeyID: String) async throws -> Data {

@@ -56,7 +56,6 @@ jobs:
       # ── Archive ──────────────────────────────────────────────────────────────
       - name: Archive
         run: |
-          set -o pipefail
           xcodebuild archive \
             -project MailGPG.xcodeproj \
             -scheme MailGPG \
@@ -67,7 +66,12 @@ jobs:
             DEVELOPMENT_TEAM="${{ secrets.DEVELOPMENT_TEAM }}" \
             CODE_SIGN_STYLE=Automatic \
             OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/signing.keychain-db" \
-            | xcpretty
+            2>&1 | tee /tmp/xcodebuild.log | grep -E "error:|ARCHIVE"
+          if grep -q "ARCHIVE FAILED" /tmp/xcodebuild.log; then
+            echo "--- Full errors ---"
+            grep -B1 "error:" /tmp/xcodebuild.log
+            exit 65
+          fi
 
       # ── Export ───────────────────────────────────────────────────────────────
       - name: Export archive

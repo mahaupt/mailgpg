@@ -204,7 +204,7 @@ jobs:
 
           git add Casks/mailgpg.rb
           git commit -m "mailgpg $VERSION"
-          git push origin "$BRANCH"
+          git push --force origin "$BRANCH"
 
           gh pr create \
             --repo mahaupt/homebrew-mailgpg \

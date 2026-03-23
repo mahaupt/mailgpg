@@ -64,3 +64,6 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 
 xcdebugger/
+
+CLAUDE.md
+GEMINI.md

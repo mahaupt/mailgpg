@@ -54,6 +54,9 @@
 		1F5965C12F69928A000486DC /* MailGPGExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MailGPGExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965EB2F69A42F000486DC /* Claude.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude.md; sourceTree = "<group>"; };
 		1F795F842F712CED00FF6227 /* SystemStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatus.swift; sourceTree = "<group>"; };
+		1F795F8D2F714FF000FF6227 /* mailgpg.rb */ = {isa = PBXFileReference; lastKnownFileType = text.script.ruby; path = mailgpg.rb; sourceTree = "<group>"; };
+		1F795F8F2F714FF000FF6227 /* release.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = release.yml; sourceTree = "<group>"; };
+		1F795F902F714FF000FF6227 /* SECRETS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SECRETS.md; sourceTree = "<group>"; };
 		1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityStatus.swift; sourceTree = "<group>"; };
 		E740A487D0E04695BEC7B959 /* TrustLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustLevel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -123,6 +126,7 @@
 				1F5965B12F699227000486DC /* MailGPG */,
 				1F5965C22F69928A000486DC /* MailGPGExtension */,
 				1F5965B02F699227000486DC /* Products */,
+				1F795F922F714FF000FF6227 /* .github */,
 			);
 			sourceTree = "<group>";
 		};
@@ -133,6 +137,32 @@
 				1F5965C12F69928A000486DC /* MailGPGExtension.appex */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		1F795F8E2F714FF000FF6227 /* homebrew */ = {
+			isa = PBXGroup;
+			children = (
+				1F795F8D2F714FF000FF6227 /* mailgpg.rb */,
+			);
+			path = homebrew;
+			sourceTree = "<group>";
+		};
+		1F795F912F714FF000FF6227 /* workflows */ = {
+			isa = PBXGroup;
+			children = (
+				1F795F8F2F714FF000FF6227 /* release.yml */,
+				1F795F902F714FF000FF6227 /* SECRETS.md */,
+			);
+			path = workflows;
+			sourceTree = "<group>";
+		};
+		1F795F922F714FF000FF6227 /* .github */ = {
+			isa = PBXGroup;
+			children = (
+				1F795F8E2F714FF000FF6227 /* homebrew */,
+				1F795F912F714FF000FF6227 /* workflows */,
+			);
+			path = .github;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */

@@ -1,0 +1,183 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  build:
+    name: Build, Sign & Notarize
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Xcode ────────────────────────────────────────────────────────────────
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      # ── Signing certificate ──────────────────────────────────────────────────
+      # Imports the Developer ID Application certificate from the base64-encoded
+      # p12 stored in GitHub secrets into a temporary keychain so xcodebuild can
+      # sign without requiring user interaction.
+      - name: Import signing certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH=$RUNNER_TEMP/signing.keychain-db
+          KEYCHAIN_PASSWORD=$(uuidgen)
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          echo "$CERTIFICATE_BASE64" | base64 --decode -o "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$CERTIFICATE_PASSWORD" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $(security list-keychains -d user | tr -d '"')
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+      # ── Version from tag ─────────────────────────────────────────────────────
+      # Strip the leading 'v' from the tag (v1.2.3 → 1.2.3) for MARKETING_VERSION
+      # and use the run number as CURRENT_PROJECT_VERSION for CFBundleVersion.
+      - name: Set version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
+
+      # ── Archive ──────────────────────────────────────────────────────────────
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -project MailGPG.xcodeproj \
+            -scheme MailGPG \
+            -configuration Release \
+            -archivePath "$RUNNER_TEMP/MailGPG.xcarchive" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            DEVELOPMENT_TEAM="${{ secrets.DEVELOPMENT_TEAM }}" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/signing.keychain-db" \
+            | xcpretty
+
+      # ── Export ───────────────────────────────────────────────────────────────
+      - name: Export archive
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>developer-id</string>
+            <key>teamID</key>
+            <string>${{ secrets.DEVELOPMENT_TEAM }}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+          </dict>
+          </plist>
+          EOF
+
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/MailGPG.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            | xcpretty
+
+      # ── DMG ──────────────────────────────────────────────────────────────────
+      - name: Create DMG
+        run: |
+          hdiutil create \
+            -volname "MailGPG" \
+            -srcfolder "$RUNNER_TEMP/export/MailGPG.app" \
+            -ov -format UDZO \
+            "$RUNNER_TEMP/MailGPG-$VERSION.dmg"
+
+      # ── Notarize ─────────────────────────────────────────────────────────────
+      # Submits the DMG to Apple's notary service and waits for the result.
+      # Uses an app-specific password (not your Apple ID password).
+      # Generate one at: https://appleid.apple.com → App-Specific Passwords
+      - name: Notarize
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.NOTARIZATION_PASSWORD }}
+          DEVELOPMENT_TEAM: ${{ secrets.DEVELOPMENT_TEAM }}
+        run: |
+          xcrun notarytool submit "$RUNNER_TEMP/MailGPG-$VERSION.dmg" \
+            --apple-id "$APPLE_ID" \
+            --password "$NOTARIZATION_PASSWORD" \
+            --team-id "$DEVELOPMENT_TEAM" \
+            --wait
+
+      # ── Staple ───────────────────────────────────────────────────────────────
+      # Attaches the notarization ticket to the DMG so Gatekeeper can verify
+      # it offline (without contacting Apple's servers on user's machine).
+      - name: Staple
+        run: xcrun stapler staple "$RUNNER_TEMP/MailGPG-$VERSION.dmg"
+
+      # ── SHA256 ───────────────────────────────────────────────────────────────
+      - name: Compute SHA256
+        run: |
+          SHA256=$(shasum -a 256 "$RUNNER_TEMP/MailGPG-$VERSION.dmg" | awk '{print $1}')
+          echo "SHA256=$SHA256" >> $GITHUB_ENV
+          echo "DMG_PATH=$RUNNER_TEMP/MailGPG-$VERSION.dmg" >> $GITHUB_ENV
+          echo "### Release $VERSION" >> $GITHUB_STEP_SUMMARY
+          echo "SHA256: \`$SHA256\`" >> $GITHUB_STEP_SUMMARY
+
+      # ── GitHub Release ───────────────────────────────────────────────────────
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: MailGPG ${{ env.VERSION }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          body: |
+            ## Installation
+
+            ```bash
+            brew install --cask mahaupt/mailgpg/mailgpg
+            ```
+
+            Or download the DMG below and drag MailGPG.app to /Applications.
+
+            **SHA256:** `${{ env.SHA256 }}`
+          files: ${{ env.DMG_PATH }}
+
+      # ── Update Homebrew tap ──────────────────────────────────────────────────
+      # Opens a PR on the mahaupt/homebrew-mailgpg tap repository updating the
+      # cask formula to the new version and SHA256.
+      - name: Update Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+        run: |
+          git clone https://x-access-token:$TAP_TOKEN@github.com/mahaupt/homebrew-mailgpg.git "$RUNNER_TEMP/tap"
+          cd "$RUNNER_TEMP/tap"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="release/$VERSION"
+          git checkout -b "$BRANCH"
+
+          # Update version and sha256 in the cask formula
+          sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/mailgpg.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Casks/mailgpg.rb
+
+          git add Casks/mailgpg.rb
+          git commit -m "mailgpg $VERSION"
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --repo mahaupt/homebrew-mailgpg \
+            --base main \
+            --head "$BRANCH" \
+            --title "mailgpg $VERSION" \
+            --body "Automated release update for $VERSION."

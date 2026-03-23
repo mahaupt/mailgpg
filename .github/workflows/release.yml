@@ -104,6 +104,13 @@ jobs:
             <string>${{ secrets.DEVELOPMENT_TEAM }}</string>
             <key>signingStyle</key>
             <string>manual</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>com.mahaupt.MailGPG</key>
+              <string>MailGPG_DeveloperID</string>
+              <key>com.mahaupt.MailGPG.MailGPGExtension</key>
+              <string>MailGPGExtension_DeveloperID</string>
+            </dict>
           </dict>
           </plist>
           EOF

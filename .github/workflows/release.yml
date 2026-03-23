@@ -188,6 +188,7 @@ jobs:
       - name: Update Homebrew tap
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
           git clone https://x-access-token:$TAP_TOKEN@github.com/mahaupt/homebrew-mailgpg.git "$RUNNER_TEMP/tap"
           cd "$RUNNER_TEMP/tap"

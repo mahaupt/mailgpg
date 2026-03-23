@@ -54,13 +54,31 @@ jobs:
           echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
 
       # ── Archive ──────────────────────────────────────────────────────────────
+      # ── App Store Connect API key ─────────────────────────────────────────────
+      # Required for -allowProvisioningUpdates so xcodebuild can fetch/create
+      # provisioning profiles from the Developer Portal without an Apple ID.
+      - name: Install App Store Connect API key
+        env:
+          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/asc"
+          echo "$ASC_KEY_BASE64" | base64 --decode -o "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+
       - name: Archive
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project MailGPG.xcodeproj \
             -scheme MailGPG \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/MailGPG.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             DEVELOPMENT_TEAM="${{ secrets.DEVELOPMENT_TEAM }}" \

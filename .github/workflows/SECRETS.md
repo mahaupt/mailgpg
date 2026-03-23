@@ -9,6 +9,9 @@ Configure these at: https://github.com/mahaupt/mailgpg/settings/secrets/actions
 | `DEVELOPMENT_TEAM` | Your 10-character Apple Team ID | `ZM4SAL8656` (from Xcode project settings) |
 | `APPLE_ID` | Your Apple ID email used for notarization | e.g. `you@example.com` |
 | `NOTARIZATION_PASSWORD` | App-specific password for notarytool | https://appleid.apple.com → Sign-In and Security → App-Specific Passwords |
+| `ASC_KEY_ID` | App Store Connect API Key ID (10 chars) | appstoreconnect.apple.com → Users and Access → Integrations → App Store Connect API → Keys |
+| `ASC_ISSUER_ID` | App Store Connect Issuer ID (UUID) | Same page as above |
+| `ASC_KEY_BASE64` | The downloaded `.p8` key file, base64-encoded | `base64 -i AuthKey_XXXXXXXXXX.p8 \| pbcopy` |
 | `TAP_TOKEN` | GitHub Personal Access Token with repo write access to mahaupt/homebrew-mailgpg | GitHub → Settings → Developer Settings → Personal Access Tokens (classic), scopes: `repo` |
 
 ## Triggering a release

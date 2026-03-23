@@ -9,6 +9,8 @@ jobs:
   build:
     name: Build, Sign & Notarize
     runs-on: macos-15
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout

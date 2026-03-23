@@ -183,20 +183,16 @@ jobs:
           files: ${{ env.DMG_PATH }}
 
       # ── Update Homebrew tap ──────────────────────────────────────────────────
-      # Opens a PR on the mahaupt/homebrew-mailgpg tap repository updating the
-      # cask formula to the new version and SHA256.
+      # Pushes directly to main on the mahaupt/homebrew-mailgpg tap repository,
+      # updating the cask formula to the new version and SHA256.
       - name: Update Homebrew tap
         env:
           TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
-          GH_TOKEN: ${{ secrets.TAP_TOKEN }}
         run: |
           git clone https://x-access-token:$TAP_TOKEN@github.com/mahaupt/homebrew-mailgpg.git "$RUNNER_TEMP/tap"
           cd "$RUNNER_TEMP/tap"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          BRANCH="release/$VERSION"
-          git checkout -b "$BRANCH"
 
           # Update version and sha256 in the cask formula
           sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/mailgpg.rb
@@ -204,11 +200,4 @@ jobs:
 
           git add Casks/mailgpg.rb
           git commit -m "mailgpg $VERSION"
-          git push --force origin "$BRANCH"
-
-          gh pr create \
-            --repo mahaupt/homebrew-mailgpg \
-            --base main \
-            --head "$BRANCH" \
-            --title "mailgpg $VERSION" \
-            --body "Automated release update for $VERSION."
+          git push origin main

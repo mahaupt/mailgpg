@@ -54,35 +54,33 @@ jobs:
           echo "BUILD_NUMBER=$GITHUB_RUN_NUMBER" >> $GITHUB_ENV
 
       # ── Archive ──────────────────────────────────────────────────────────────
-      # ── App Store Connect API key ─────────────────────────────────────────────
-      # Required for -allowProvisioningUpdates so xcodebuild can fetch/create
-      # provisioning profiles from the Developer Portal without an Apple ID.
-      - name: Install App Store Connect API key
-        env:
-          ASC_KEY_BASE64: ${{ secrets.ASC_KEY_BASE64 }}
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      # ── Provisioning profiles ─────────────────────────────────────────────────
+      # Developer ID provisioning profiles are required for both targets because
+      # they use the App Groups capability. Downloaded from the Apple Developer
+      # portal and stored as base64-encoded GitHub secrets.
+      - name: Install provisioning profiles
         run: |
-          mkdir -p "$RUNNER_TEMP/asc"
-          echo "$ASC_KEY_BASE64" | base64 --decode -o "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8"
+          PP_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PP_DIR"
+          echo "${{ secrets.PROVISIONING_PROFILE_HOST_BASE64 }}" \
+            | base64 --decode -o "$PP_DIR/MailGPG_DeveloperID.provisionprofile"
+          echo "${{ secrets.PROVISIONING_PROFILE_EXTENSION_BASE64 }}" \
+            | base64 --decode -o "$PP_DIR/MailGPGExtension_DeveloperID.provisionprofile"
 
       - name: Archive
-        env:
-          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
-          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           xcodebuild archive \
             -project MailGPG.xcodeproj \
             -scheme MailGPG \
             -configuration Release \
             -archivePath "$RUNNER_TEMP/MailGPG.xcarchive" \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$RUNNER_TEMP/asc/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             DEVELOPMENT_TEAM="${{ secrets.DEVELOPMENT_TEAM }}" \
-            CODE_SIGN_STYLE=Automatic \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Developer ID Application" \
+            PROVISIONING_PROFILE_SPECIFIER_MailGPG="MailGPG_DeveloperID" \
+            PROVISIONING_PROFILE_SPECIFIER_MailGPGExtension="MailGPGExtension_DeveloperID" \
             OTHER_CODE_SIGN_FLAGS="--keychain $RUNNER_TEMP/signing.keychain-db" \
             2>&1 | tee /tmp/xcodebuild.log | grep -E "error:|ARCHIVE"
           if grep -q "ARCHIVE FAILED" /tmp/xcodebuild.log; then
@@ -105,7 +103,7 @@ jobs:
             <key>teamID</key>
             <string>${{ secrets.DEVELOPMENT_TEAM }}</string>
             <key>signingStyle</key>
-            <string>automatic</string>
+            <string>manual</string>
           </dict>
           </plist>
           EOF

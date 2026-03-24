@@ -194,7 +194,8 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Update version and sha256 in the cask formula
+          # Copy cask template from this repo (single source of truth) and stamp version/sha256
+          cp "$GITHUB_WORKSPACE/.github/homebrew/mailgpg.rb" Casks/mailgpg.rb
           sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/mailgpg.rb
           sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Casks/mailgpg.rb
 

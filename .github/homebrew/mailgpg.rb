@@ -37,6 +37,11 @@ cask "mailgpg" do
         <true/>
         <key>KeepAlive</key>
         <true/>
+        <key>MachServices</key>
+        <dict>
+          <key>com.mahaupt.mailgpg.gpgservice</key>
+          <true/>
+        </dict>
         <key>StandardOutPath</key>
         <string>#{Dir.home}/Library/Logs/MailGPG/mailgpg.log</string>
         <key>StandardErrorPath</key>

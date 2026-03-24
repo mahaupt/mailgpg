@@ -47,6 +47,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		1F2792122F7267CD006BF29B /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
 		1F3247A72F69F9C000156831 /* GPGXPCError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPGXPCError.swift; sourceTree = "<group>"; };
 		1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPGXPCProtocol.swift; sourceTree = "<group>"; };
 		1F3247A92F69F9C000156831 /* KeyInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInfo.swift; sourceTree = "<group>"; };
@@ -127,6 +128,7 @@
 				1F5965C22F69928A000486DC /* MailGPGExtension */,
 				1F5965B02F699227000486DC /* Products */,
 				1F795F922F714FF000FF6227 /* .github */,
+				1F2792122F7267CD006BF29B /* README.md */,
 			);
 			sourceTree = "<group>";
 		};

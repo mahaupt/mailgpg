@@ -20,59 +20,11 @@ cask "mailgpg" do
 
   app "MailGPG.app"
 
-  postflight do
-    plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
-    plist_content = <<~XML
-      <?xml version="1.0" encoding="UTF-8"?>
-      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-      <plist version="1.0">
-      <dict>
-        <key>Label</key>
-        <string>com.mahaupt.mailgpg</string>
-        <key>ProgramArguments</key>
-        <array>
-          <string>/Applications/MailGPG.app/Contents/MacOS/MailGPG</string>
-        </array>
-        <key>RunAtLoad</key>
-        <true/>
-        <key>KeepAlive</key>
-        <true/>
-        <key>MachServices</key>
-        <dict>
-          <key>com.mahaupt.mailgpg.gpgservice</key>
-          <true/>
-        </dict>
-        <key>StandardOutPath</key>
-        <string>#{Dir.home}/Library/Logs/MailGPG/mailgpg.log</string>
-        <key>StandardErrorPath</key>
-        <string>#{Dir.home}/Library/Logs/MailGPG/mailgpg.log</string>
-      </dict>
-      </plist>
-    XML
-
-    FileUtils.mkdir_p("#{Dir.home}/Library/Logs/MailGPG")
-    File.write(plist_path, plist_content)
-    system_command "/bin/launchctl",
-      args: ["bootstrap", "gui/#{Process.uid}", plist_path],
-      print_stderr: false
-  end
-
-  uninstall_postflight do
-    plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
-    system_command "/bin/launchctl",
-      args: ["bootout", "gui/#{Process.uid}", plist_path],
-      print_stderr: false
-    FileUtils.rm_f(plist_path)
-  end
-
   caveats <<~EOS
-    MailGPG has been installed and the background service has been started.
-
-    To finish setup, enable the Mail extension:
-      System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓
-
-    Then open a compose window in Mail — the MailGPG panel will appear.
-
-    If you already had Mail open, restart it first.
+    To finish setup:
+      1. Open MailGPG once — it registers itself as a login item automatically.
+      2. Enable the Mail extension:
+           System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓
+      3. Restart Mail if it was already open.
   EOS
 end

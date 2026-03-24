@@ -63,13 +63,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		7C346361F70249DFAB832B2E /* Exceptions for "MailGPG" folder in "MailGPG" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"com.mahaupt.mailgpg.plist",
-			);
-			target = 1F5965AE2F699227000486DC /* MailGPG */;
-		};
 		1F5965DB2F69928A000486DC /* Exceptions for "MailGPGExtension" folder in "MailGPGExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -82,9 +75,6 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		1F5965B12F699227000486DC /* MailGPG */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				7C346361F70249DFAB832B2E /* Exceptions for "MailGPG" folder in "MailGPG" target */,
-			);
 			path = MailGPG;
 			sourceTree = "<group>";
 		};
@@ -187,8 +177,7 @@
 				1F5965AB2F699227000486DC /* Sources */,
 				1F5965AC2F699227000486DC /* Frameworks */,
 				1F5965AD2F699227000486DC /* Resources */,
-				7FE3165774DE410C9AEABFF6 /* Copy LaunchAgent plist */,
-				1F5965DF2F69928A000486DC /* Embed Foundation Extensions */,
+					1F5965DF2F69928A000486DC /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -282,6 +271,7 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+
 /* Begin PBXSourcesBuildPhase section */
 		1F5965AB2F699227000486DC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -310,25 +300,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXShellScriptBuildPhase section */
-		7FE3165774DE410C9AEABFF6 /* Copy LaunchAgent plist */ = {
-			isa = PBXShellScriptBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			inputPaths = (
-				"$(SRCROOT)/MailGPG/com.mahaupt.mailgpg.plist",
-			);
-			name = "Copy LaunchAgent plist";
-			outputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchAgents/com.mahaupt.mailgpg.plist",
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-			shellPath = /bin/sh;
-			shellScript = "mkdir -p \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents\"\ncp \"${SRCROOT}/MailGPG/com.mahaupt.mailgpg.plist\" \"${BUILT_PRODUCTS_DIR}/${CONTENTS_FOLDER_PATH}/Library/LaunchAgents/com.mahaupt.mailgpg.plist\"\n";
-		};
-/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		1F5965D92F69928A000486DC /* PBXTargetDependency */ = {

@@ -20,11 +20,49 @@ cask "mailgpg" do
 
   app "MailGPG.app"
 
+  postflight do
+    plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
+    executable = "#{appdir}/MailGPG.app/Contents/MacOS/MailGPG"
+    plist_content = <<~XML
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0">
+      <dict>
+        <key>Label</key>
+        <string>com.mahaupt.mailgpg</string>
+        <key>ProgramArguments</key>
+        <array>
+          <string>#{executable}</string>
+        </array>
+        <key>KeepAlive</key>
+        <true/>
+        <key>MachServices</key>
+        <dict>
+          <key>com.mahaupt.mailgpg.gpgservice</key>
+          <true/>
+        </dict>
+      </dict>
+      </plist>
+    XML
+
+    File.write(plist_path, plist_content)
+    system_command "/bin/launchctl",
+      args: ["bootstrap", "gui/#{Process.uid}", plist_path],
+      print_stderr: false
+  end
+
+  uninstall_postflight do
+    plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
+    system_command "/bin/launchctl",
+      args: ["bootout", "gui/#{Process.uid}", plist_path],
+      print_stderr: false
+    FileUtils.rm_f(plist_path)
+  end
+
   caveats <<~EOS
-    To finish setup:
-      1. Open MailGPG once — it registers itself as a login item automatically.
-      2. Enable the Mail extension:
-           System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓
-      3. Restart Mail if it was already open.
+    To finish setup, enable the Mail extension:
+      System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓
+
+    Restart Mail if it was already open.
   EOS
 end

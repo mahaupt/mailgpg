@@ -102,7 +102,7 @@ extension GPGServiceImpl {
                 var args = ["--keyserver", ks, "--recv-keys", "--keyserver-options", "timeout=10"]
                 args.append(keyID)
                 guard (try gpg(args)).exitCode == 0 else { continue }
-                log.info("resolveKey: recv-keys succeeded for \(keyID) on \(ks ?? "default")")
+                log.info("resolveKey: recv-keys succeeded for \(keyID) on \(ks)")
                 let (listOut, _, _) = try gpg(
                     ["--list-keys", "--with-colons", "--fixed-list-mode", keyID])
                 let keys = parseColonOutput(String(data: listOut, encoding: .utf8) ?? "",

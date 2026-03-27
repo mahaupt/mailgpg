@@ -61,13 +61,18 @@ extension GPGServiceImpl {
         text.contains("\r\n") ? "\r\n" : "\n"
     }
 
+    /// Split a header block into lines, stripping any trailing CR from each line.
+    private func headerLines(from headers: String) -> [String] {
+        headers.components(separatedBy: "\n").map {
+            $0.hasSuffix("\r") ? String($0.dropLast()) : $0
+        }
+    }
+
     /// Remove a named header (and any folded continuation lines) from a header block.
     /// Preserves the original line ending style.
     func removeHeader(_ name: String, from headers: String) -> String {
         let eol = lineEnding(in: headers)
-        let lines = headers.components(separatedBy: "\n").map {
-            $0.hasSuffix("\r") ? String($0.dropLast()) : $0
-        }
+        let lines = headerLines(from: headers)
         let prefix = name.lowercased() + ":"
         var out: [String] = []
         var skipping = false
@@ -89,9 +94,7 @@ extension GPGServiceImpl {
     /// Preserves the original line ending style.
     func setHeader(_ name: String, to value: String, in headers: String) -> String {
         let eol = lineEnding(in: headers)
-        let lines = headers.components(separatedBy: "\n").map {
-            $0.hasSuffix("\r") ? String($0.dropLast()) : $0
-        }
+        let lines = headerLines(from: headers)
         let prefix = name.lowercased() + ":"
         var out: [String] = []
         var replaced = false
@@ -117,27 +120,12 @@ extension GPGServiceImpl {
 
     // MARK: - PGP/MIME builders (RFC 3156)
 
-    /// Wrap original message in a PGP/MIME multipart/signed envelope.
-    ///
-    /// Structure (RFC 3156 §5):
-    ///   Content-Type: multipart/signed; micalg="pgp-sha256";
-    ///                 protocol="application/pgp-signature"
-    ///   --BOUNDARY
-    ///   <original body>
-    ///   --BOUNDARY
-    ///   Content-Type: application/pgp-signature
-    ///   <detached signature>
-    ///   --BOUNDARY--
-    /// Build the first MIME body part for a multipart/signed message.
-    /// This is the content that gets signed with `gpg --detach-sign`.
-    /// RFC 3156 §5: the signature covers the complete first MIME part
-    /// (part headers + blank line + body), NOT just the message body text.
     /// Build a self-contained inner MIME entity from the original message's
-    /// Content-Type (+ Content-Transfer-Encoding) and body.  This is what gets
-    /// encrypted — so when the recipient (or our own extension) decrypts, the
-    /// output starts with MIME headers and can be parsed correctly.
-    /// Without this, multipart/alternative bodies (text + html) lose their
-    /// Content-Type wrapper and recipients see raw MIME boundary text.
+    /// Content-Type (+ Content-Transfer-Encoding) and body. This is what gets
+    /// encrypted — so when the recipient decrypts, the output starts with MIME
+    /// headers and can be parsed correctly. Without this, multipart/alternative
+    /// bodies (text + html) lose their Content-Type wrapper and recipients see
+    /// raw MIME boundary text.
     func buildInnerMIMEEntity(rawHeaders: String, body: Data) -> Data {
         let origCT  = foldedHeaderValue("content-type", in: rawHeaders)
                    ?? "text/plain; charset=utf-8"
@@ -152,6 +140,9 @@ extension GPGServiceImpl {
         return entity.data(using: .utf8) ?? body
     }
 
+    /// Build the first MIME body part for a multipart/signed message — the content
+    /// that gets signed with `gpg --detach-sign`. RFC 3156 §5: the signature covers
+    /// the complete first MIME part (headers + blank line + body), not just the body.
     func buildSignedPart(rawHeaders: String, body: Data) -> String {
         let eol = lineEnding(in: rawHeaders)
         let origCT  = foldedHeaderValue("content-type", in: rawHeaders)
@@ -277,9 +268,7 @@ extension GPGServiceImpl {
     /// Extract a header value from a block of RFC 2822 headers, collecting
     /// folded (multi-line) continuation lines.
     func foldedHeaderValue(_ name: String, in headers: String) -> String? {
-        let lines = headers.components(separatedBy: "\n").map {
-            $0.hasSuffix("\r") ? String($0.dropLast()) : $0
-        }
+        let lines = headerLines(from: headers)
         let prefix = name.lowercased() + ":"
         var result: String? = nil
         for (i, line) in lines.enumerated() {

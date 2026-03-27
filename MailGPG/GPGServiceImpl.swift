@@ -193,8 +193,8 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         log.info("sign: keyID=\(signerKeyID) dataSize=\(data.count)")
         do {
             try GPGAgent.ensureRunning()
-            log.info("sign: gpg-agent running, polling card-status…")
-            _ = try? gpg(["--card-status"])
+            let cardCode = (try? gpg(["--card-status"]))?.exitCode ?? -1
+            log.info("sign: card-status exit=\(cardCode)")
             let (rawHeaders, body) = splitMessage(data)
 
             // RFC 3156 §5: the detached signature must cover the complete first
@@ -365,6 +365,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                                   sigURL.path, dataURL.path]
             var env = ProcessInfo.processInfo.environment
             env.removeValue(forKey: "DYLD_INSERT_LIBRARIES")
+            env.removeValue(forKey: "GPG_TTY")
             process.environment = env
             let outPipe = Pipe()
             let errPipe = Pipe()

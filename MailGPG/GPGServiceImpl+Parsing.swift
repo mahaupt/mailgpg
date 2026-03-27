@@ -117,8 +117,9 @@ extension GPGServiceImpl {
                 let p = line.components(separatedBy: " ")
                 if p.count >= 4 {
                     let keyID = p[2]
-                    let name  = p[3...].joined(separator: " ")
-                    pending.append((email: name, keyID: keyID))
+                    // GOODSIG name field is the full UID string "Name <email>"
+                    let (_, email) = parseUID(p[3...].joined(separator: " "))
+                    pending.append((email: email, keyID: keyID))
                     lastKeyID = keyID
                 }
             } else if line.contains("[GNUPG:] VALIDSIG"), let kid = lastKeyID {
@@ -158,7 +159,9 @@ extension GPGServiceImpl {
                 let p = line.components(separatedBy: " ")
                 if p.count >= 4 {
                     keyID = p[2]
-                    name  = p[3...].joined(separator: " ")
+                    // GOODSIG name field is the full UID string "Name <email>"
+                    let (_, email) = parseUID(p[3...].joined(separator: " "))
+                    name = email.isEmpty ? p[3...].joined(separator: " ") : email
                 }
             } else if line.contains("[GNUPG:] VALIDSIG"), keyID != nil {
                 let p = line.components(separatedBy: " ")

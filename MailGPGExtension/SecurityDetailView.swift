@@ -115,7 +115,8 @@ private struct SignerRow: View {
                     .font(.callout)
                     .textSelection(.enabled)
                 Spacer()
-                TrustLevelBadge(level: signer.trustLevel)
+                // Security details should always surface signer trust, including unknown keys.
+                TrustLevelBadge(level: signer.trustLevel, showUnverified: true)
             }
             Text("Key ID: \(signer.keyID)")
                 .font(.caption)

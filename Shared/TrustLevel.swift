@@ -3,24 +3,28 @@
 
 import Foundation
 
-/// The owner-trust level of a GPG key in the local keychain.
+/// A GPG trust/validity level.
 ///
-/// Maps directly to the validity field in `gpg --with-colons` output.
+/// Used for two distinct purposes:
+/// - **Owner trust** (field 8 in `gpg --with-colons`): how much you trust a key
+///   *owner* to certify other keys in the web of trust. Stored in `KeyInfo.trustLevel`.
+/// - **Calculated validity** (field 1): whether GPG considers a key valid, based on
+///   local signatures (`lsign`) and web-of-trust calculations. Stored in `KeyInfo.validity`.
 enum TrustLevel: String, Codable, CaseIterable {
-    case unknown  = "?"   // GPG validity: ?
-    case none     = "-"   // GPG validity: -
-    case marginal = "m"   // GPG validity: m
-    case full     = "f"   // GPG validity: f
-    case ultimate = "u"   // GPG validity: u
+    case unknown  = "?"   // GPG: ?
+    case none     = "-"   // GPG: -
+    case marginal = "m"   // GPG: m
+    case full     = "f"   // GPG: f
+    case ultimate = "u"   // GPG: u
 
-    /// Human-readable label shown in UI pickers.
+    /// Label used in the owner-trust picker.
     var displayName: String {
         switch self {
-        case .unknown:  return "Unknown"
-        case .none:     return "None"
+        case .unknown:  return "Not Set"
+        case .none:     return "Do Not Trust"
         case .marginal: return "Marginal"
         case .full:     return "Full"
-        case .ultimate: return "Ultimate"
+        case .ultimate: return "Ultimate (my key)"
         }
     }
 

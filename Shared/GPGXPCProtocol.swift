@@ -125,6 +125,13 @@ import Foundation
         level: String,
         reply: @escaping (Error?) -> Void
     )
+
+    /// Locally sign a key (non-exportable `lsign`). Marks the key as verified in the
+    /// local keychain without publishing the signature to keyservers.
+    func lsignKey(
+        fingerprint: String,
+        reply: @escaping (Error?) -> Void
+    )
 }
 
 // MARK: - JSON helpers

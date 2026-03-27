@@ -192,7 +192,7 @@ private struct PublicKeyRow: View {
                 Text(key.name.isEmpty ? key.email : key.name)
                     .font(.callout)
                 Spacer()
-                TrustLevelBadge(level: key.trustLevel)
+                TrustLevelBadge(level: key.validity)
             }
             Text(key.email)
                 .font(.caption)
@@ -218,21 +218,30 @@ private struct PublicKeyRow: View {
 
 // MARK: - Trust level badge
 
+/// Displays the calculated key validity (lsign / web-of-trust result).
+/// Shows nothing for unknown/unverified keys to avoid cluttering the list.
 struct TrustLevelBadge: View {
     let level: TrustLevel
 
-    private var color: Color {
-        switch level {
-        case .ultimate: return .blue
-        case .full:     return .green
-        case .marginal: return .yellow
-        case .none:     return .secondary
-        case .unknown:  return .secondary
-        }
+    var showUnverified: Bool
+
+    init(level: TrustLevel, showUnverified: Bool = false) {
+        self.level = level
+        self.showUnverified = showUnverified
     }
 
     var body: some View {
-        Text(level.displayName)
+        switch level {
+        case .ultimate: badge("My Key",     color: .blue)
+        case .full:     badge("Verified",   color: .green)
+        case .marginal: badge("Marginal",   color: .yellow)
+        case .none, .unknown:
+            if showUnverified { badge("Unverified", color: .secondary) } else { EmptyView() }
+        }
+    }
+
+    private func badge(_ text: String, color: Color) -> some View {
+        Text(text)
             .font(.caption2)
             .padding(.horizontal, 6)
             .padding(.vertical, 2)

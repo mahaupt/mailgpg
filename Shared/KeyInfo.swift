@@ -20,11 +20,15 @@ struct KeyInfo: Codable, Identifiable, Equatable {
     /// Human-readable name from the key's User ID packet.
     let name: String
 
-    /// The owner-trust level of this key in the local keychain.
+    /// Owner-trust level (field 8): how much GPG trusts this key owner to certify others.
     let trustLevel: TrustLevel
 
-    /// Whether this key is trusted (full or ultimate trust). Convenience accessor.
-    var trusted: Bool { trustLevel == .full || trustLevel == .ultimate }
+    /// Calculated validity (field 1): whether this key is considered valid based on
+    /// local signatures (`lsign`) and web-of-trust calculations. Use this for the trust badge.
+    let validity: TrustLevel
+
+    /// Whether this key has been verified (full or ultimate validity). Convenience accessor.
+    var trusted: Bool { validity == .full || validity == .ultimate }
 
     /// Whether a secret (private) key is available for this fingerprint.
     /// `true` means we can sign or decrypt with this key.

@@ -12,6 +12,8 @@ struct KeyDetailView: View {
 
     @State private var selectedTrust: TrustLevel
     @State private var isSavingTrust = false
+    @State private var isLsigning = false
+    @State private var isVerified: Bool
     @State private var isDeleting = false
     @State private var showDeleteConfirm = false
     @State private var errorMessage: String? = nil
@@ -20,6 +22,7 @@ struct KeyDetailView: View {
         self.key = key
         self.onDeleted = onDeleted
         _selectedTrust = State(initialValue: key.trustLevel)
+        _isVerified = State(initialValue: key.validity == .full || key.validity == .ultimate)
     }
 
     var body: some View {
@@ -58,8 +61,34 @@ struct KeyDetailView: View {
                 }
             }
 
-            Section("Trust") {
-                Picker("Trust Level", selection: $selectedTrust) {
+            Section("Verification") {
+                if isVerified {
+                    Label("You have verified this key", systemImage: "checkmark.seal.fill")
+                        .foregroundStyle(.green)
+                } else {
+                    Button(action: lsignKey) {
+                        if isLsigning {
+                            HStack {
+                                ProgressView().controlSize(.small)
+                                Text("Verifying…")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        } else {
+                            Label("I have verified and trust this key", systemImage: "checkmark.seal")
+                        }
+                    }
+                    .disabled(isLsigning)
+                }
+                Text(isVerified
+                     ? "This key is locally certified. Your mail client will show it as verified."
+                     : "Only verify after confirming out-of-band that the fingerprint above belongs to this person.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("Owner Trust") {
+                Picker("Owner Trust", selection: $selectedTrust) {
                     ForEach(TrustLevel.allCases, id: \.self) { level in
                         Text(level.displayName).tag(level)
                     }
@@ -76,6 +105,9 @@ struct KeyDetailView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                Text("Controls how much GPG trusts this key owner to certify other keys in the web of trust. This is separate from verifying the key itself.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             if let error = errorMessage {
@@ -120,6 +152,20 @@ struct KeyDetailView: View {
     }
 
     // MARK: - Actions
+
+    private func lsignKey() {
+        isLsigning = true
+        errorMessage = nil
+        Task {
+            do {
+                try await GPGService.shared.lsignKey(fingerprint: key.fingerprint)
+                isVerified = true
+            } catch {
+                errorMessage = "Failed to verify key: \(error.localizedDescription)"
+            }
+            isLsigning = false
+        }
+    }
 
     private func saveTrust(_ level: TrustLevel) {
         isSavingTrust = true

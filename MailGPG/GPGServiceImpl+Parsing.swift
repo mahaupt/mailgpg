@@ -61,12 +61,15 @@ extension GPGServiceImpl {
                 // in TrustLevel — map it to .none explicitly.
                 let trust: TrustLevel = ownertrust == "n" ? .none
                                       : TrustLevel(rawValue: ownertrust) ?? .unknown
+                let validityLevel: TrustLevel = validity == "n" ? .none
+                                              : TrustLevel(rawValue: validity) ?? .unknown
                 results.append(KeyInfo(
                     fingerprint: fp,
                     keyID:       kid,
                     email:       email,
                     name:        name,
                     trustLevel:  trust,
+                    validity:    validityLevel,
                     hasSecretKey: wantSecretKeys,
                     expiresAt:   expiryDate,
                     isRevoked:   validity == "r"
@@ -194,8 +197,10 @@ extension GPGServiceImpl {
             guard let (out, _, code) = try? gpg(["--list-keys", "--with-colons",
                                                   "--fixed-list-mode", fp]),
                   code == 0 else { return .unknown }
+            // Use validity (lsign/web-of-trust result) rather than ownertrust so the
+            // trust badge in the UI reflects whether the key has actually been verified.
             return parseColonOutput(String(data: out, encoding: .utf8) ?? "",
-                                    wantSecretKeys: false).first?.trustLevel ?? .unknown
+                                    wantSecretKeys: false).first?.validity ?? .unknown
         }
         func enrich(_ signers: [Signer]) -> [Signer] {
             signers.map { Signer(email: $0.email, keyID: $0.keyID,

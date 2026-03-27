@@ -201,6 +201,21 @@ extension GPGServiceImpl {
         }
     }
 
+    func lsignKey(fingerprint: String, reply: @escaping (Error?) -> Void) {
+        do {
+            let (_, stderr, code) = try gpg(["--batch", "--yes", "--lsign-key", fingerprint])
+            guard code == 0 else {
+                throw GPGXPCError.make(.gpgFailed, message: "gpg lsign-key failed: \(stderr)")
+            }
+            _ = try? gpg(["--batch", "--check-trustdb"])
+            log.info("lsignKey: locally signed \(fingerprint)")
+            reply(nil)
+        } catch {
+            log.error("lsignKey: error — \(error.localizedDescription, privacy: .public)")
+            reply(error as NSError)
+        }
+    }
+
     func importKey(armoredKey: String,
                    reply: @escaping (Data?, Error?) -> Void) {
         guard let keyData = armoredKey.data(using: .utf8) else {

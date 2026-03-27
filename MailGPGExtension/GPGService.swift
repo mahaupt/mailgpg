@@ -261,6 +261,16 @@ actor GPGService {
         }
     }
 
+    func lsignKey(fingerprint: String) async throws {
+        let proxy = try connection.proxy()
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            proxy.lsignKey(fingerprint: fingerprint) { error in
+                if let error { continuation.resume(throwing: error); return }
+                continuation.resume()
+            }
+        }
+    }
+
     func setTrust(fingerprint: String, level: TrustLevel) async throws {
         let proxy = try connection.proxy()
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in

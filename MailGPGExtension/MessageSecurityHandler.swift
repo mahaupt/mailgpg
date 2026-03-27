@@ -256,7 +256,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                 completionHandler(encodeResult)
 
             } catch {
-                log.error("encode: failed — \(error.localizedDescription)")
+                log.error("encode: failed — \(error.localizedDescription, privacy: .public)")
                 let nsError = error as NSError
                 completionHandler(MEMessageEncodingResult(
                     encodedMessage: nil,
@@ -375,7 +375,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     log.debug("decodedMessage: verify result=\(String(describing: status))")
                     result = Self.makeDecodedMessage(data: data, status: status)
                 } catch let error as NSError {
-                    log.error("decodedMessage: verify error — \(error.localizedDescription)")
+                    log.error("decodedMessage: verify error — \(error.localizedDescription, privacy: .public)")
                     switch GPGXPCError(nsError: error) {
                     case .gpgFailed:
                         result = Self.makeDecodedMessage(
@@ -395,7 +395,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     log.debug("decodedMessage: decrypt succeeded, status=\(String(describing: status))")
                     result = Self.makeDecodedMessage(data: plaintext, status: status, wasEncrypted: true)
                 } catch let error as NSError {
-                    log.error("decodedMessage: decrypt error — \(error.localizedDescription)")
+                    log.error("decodedMessage: decrypt error — \(error.localizedDescription, privacy: .public)")
                     // Return nil so Mail shows the raw message instead of crashing.
                     // Returning a MEDecodedMessage with the original encrypted data
                     // causes Mail's indexer to loop and trigger a KVO re-entrancy crash.

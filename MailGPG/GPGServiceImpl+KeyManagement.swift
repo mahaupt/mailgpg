@@ -123,7 +123,7 @@ extension GPGServiceImpl {
             log.info("listSecretKeys: found \(keys.count) key(s): \(keys.map { "\($0.keyID)(\($0.email)) revoked=\($0.isRevoked)" }.joined(separator: ", "))")
             reply(try xpcEncode(keys), nil)
         } catch {
-            log.error("listSecretKeys: error — \(error.localizedDescription)")
+            log.error("listSecretKeys: error — \(error.localizedDescription, privacy: .public)")
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
         }
     }
@@ -137,7 +137,7 @@ extension GPGServiceImpl {
             log.info("listPublicKeys: found \(keys.count) key(s)")
             reply(try xpcEncode(keys), nil)
         } catch {
-            log.error("listPublicKeys: error — \(error.localizedDescription)")
+            log.error("listPublicKeys: error — \(error.localizedDescription, privacy: .public)")
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
         }
     }
@@ -154,7 +154,7 @@ extension GPGServiceImpl {
             log.info("deleteKey: deleted \(fingerprint)")
             reply(nil)
         } catch {
-            log.error("deleteKey: error — \(error.localizedDescription)")
+            log.error("deleteKey: error — \(error.localizedDescription, privacy: .public)")
             reply(error as NSError)
         }
     }
@@ -196,7 +196,7 @@ extension GPGServiceImpl {
             log.info("setTrust: \(fingerprint) → \(level)")
             reply(nil)
         } catch {
-            log.error("setTrust: error — \(error.localizedDescription)")
+            log.error("setTrust: error — \(error.localizedDescription, privacy: .public)")
             reply(error as NSError)
         }
     }

@@ -30,6 +30,8 @@ cask "mailgpg" do
       <dict>
         <key>Label</key>
         <string>com.mahaupt.mailgpg</string>
+        <key>AssociatedBundleIdentifiers</key>
+        <string>com.mahaupt.MailGPG</string>
         <key>ProgramArguments</key>
         <array>
           <string>#{executable}</string>

@@ -226,7 +226,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                 throw GPGXPCError.make(.gpgFailed, message: msg)
             }
         } catch {
-            log.error("sign: error — \(error.localizedDescription)")
+            log.error("sign: error — \(error.localizedDescription, privacy: .public)")
             reply(nil, error as NSError)
         }
     }
@@ -285,7 +285,18 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                  reply: @escaping (Data?, Data?, Error?) -> Void) {
         do {
             try GPGAgent.ensureRunning()
-            let payload = extractPGPPayload(from: data)
+            // Decode quoted-printable body before extraction so GPG receives clean PGP armor.
+            let (rawHdrs, bodyBytes) = splitMessage(data)
+            let cte = foldedHeaderValue("content-transfer-encoding", in: rawHdrs)?
+                .lowercased().trimmingCharacters(in: .whitespaces)
+            let processedData: Data
+            if cte == "quoted-printable", let bodyStr = String(data: bodyBytes, encoding: .utf8) {
+                let eol = lineEnding(in: rawHdrs)
+                processedData = (rawHdrs + eol + eol + decodeQuotedPrintable(bodyStr)).data(using: .utf8) ?? data
+            } else {
+                processedData = data
+            }
+            let payload = extractPGPPayload(from: processedData)
             // --status-fd 2: write [GNUPG:] machine-readable lines to stderr
             // so we can parse signer info without polluting stdout (plaintext).
             let (plaintext, stderr, code) = try gpg(

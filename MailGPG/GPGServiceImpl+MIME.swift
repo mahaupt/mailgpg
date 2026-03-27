@@ -8,6 +8,21 @@ extension GPGServiceImpl {
 
     // MARK: - RFC 2822 / MIME helpers
 
+    /// Decode a quoted-printable encoded string (RFC 2045).
+    /// Removes soft line breaks (=\r\n, =\n) and replaces =XX with the corresponding byte.
+    func decodeQuotedPrintable(_ s: String) -> String {
+        var out = s.replacingOccurrences(of: "=\r\n", with: "")
+                   .replacingOccurrences(of: "=\n", with: "")
+        var result = ""; var i = out.startIndex
+        while i < out.endIndex {
+            if out[i] == "=", let j = out.index(i, offsetBy: 3, limitedBy: out.endIndex),
+               let byte = UInt8(String(out[out.index(after: i)..<j]), radix: 16) {
+                result += String(UnicodeScalar(byte)); i = j
+            } else { result.append(out[i]); i = out.index(after: i) }
+        }
+        return result
+    }
+
     /// Split a raw RFC 2822 message into its header block (as String) and body (as Data).
     /// The separator between headers and body is either CRLFCRLF or LFLF.
     func splitMessage(_ data: Data) -> (headers: String, body: Data) {

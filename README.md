@@ -15,8 +15,6 @@ Native macOS Mail extension for OpenPGP — sign, encrypt, and decrypt emails us
 brew install --cask mahaupt/mailgpg/mailgpg
 ```
 
-Open **MailGPG.app** once — it registers itself as a background service automatically.
-
 Then enable the extension:
 **System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓**
 

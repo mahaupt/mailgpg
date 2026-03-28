@@ -63,7 +63,7 @@ cask "mailgpg" do
 
   caveats <<~EOS
     To finish setup, enable the Mail extension:
-      System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓
+      Mail → Settings → Extensions → MailGPG ✓
 
     Restart Mail if it was already open.
   EOS

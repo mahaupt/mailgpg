@@ -7,17 +7,25 @@ struct KeyManagementView: View {
     @State private var selectedTab = 0
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            MyKeysTab()
-                .tabItem { Label("My Keys", systemImage: "key.fill") }
-                .tag(0)
+        VStack(spacing: 0) {
+            Picker("Tab", selection: $selectedTab) {
+                Label("My Keys", systemImage: "key.fill").tag(0)
+                Label("All Public Keys", systemImage: "person.2.fill").tag(1)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding(.horizontal)
+            .padding(.vertical, 8)
 
-            PublicKeysTab()
-                .tabItem { Label("All Public Keys", systemImage: "person.2.fill") }
-                .tag(1)
+            Divider()
+
+            if selectedTab == 0 {
+                MyKeysTab()
+            } else {
+                PublicKeysTab()
+            }
         }
         .navigationTitle("Key Management")
-        .padding(.top, 10)
     }
 }
 
@@ -151,9 +159,9 @@ private struct PublicKeysTab: View {
                         PublicKeyRow(key: key)
                     }
                 }
-                .searchable(text: $searchText, prompt: "Filter by name or email")
             }
         }
+        .searchable(text: $searchText, prompt: "Filter by name or email")
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

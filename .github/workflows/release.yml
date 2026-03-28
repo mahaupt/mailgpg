@@ -177,8 +177,6 @@ jobs:
             brew install --cask mahaupt/mailgpg/mailgpg
             ```
 
-            Or download the DMG below and drag MailGPG.app to /Applications.
-
             **SHA256:** `${{ env.SHA256 }}`
           files: ${{ env.DMG_PATH }}
 

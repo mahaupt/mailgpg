@@ -16,7 +16,7 @@ brew install --cask mahaupt/mailgpg/mailgpg
 ```
 
 Then enable the extension:
-**System Settings → Privacy & Security → Extensions → Mail Extensions → MailGPG ✓**
+**Mail → Settings → Extensions → MailGPG ✓**
 
 Restart Mail if it was already open.
 

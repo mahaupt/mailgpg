@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "F4E12345-AABB-4567-89CC-F4E12345AABB",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:MailGPG.xcodeproj",
+        "identifier" : "AABB0005AABB0005AABB0005",
+        "name" : "MailGPGTests"
+      }
+    }
+  ],
+  "version" : 1
+}

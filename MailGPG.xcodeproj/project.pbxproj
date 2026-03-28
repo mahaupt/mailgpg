@@ -30,6 +30,13 @@
 			remoteGlobalIDString = 1F5965C02F69928A000486DC;
 			remoteInfo = MailGPGExtension;
 		};
+		AABB0001AABB0001AABB0001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 1F5965A72F699227000486DC /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 1F5965AE2F699227000486DC;
+			remoteInfo = MailGPG;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -60,6 +67,8 @@
 		1F795F902F714FF000FF6227 /* SECRETS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SECRETS.md; sourceTree = "<group>"; };
 		1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityStatus.swift; sourceTree = "<group>"; };
 		E740A487D0E04695BEC7B959 /* TrustLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustLevel.swift; sourceTree = "<group>"; };
+		AABB0002AABB0002AABB0002 /* MailGPGTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MailGPGTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AABB00CC00CCAABB00CC00CC /* MailGPG.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = MailGPG.xctestplan; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -86,6 +95,11 @@
 			path = MailGPGExtension;
 			sourceTree = "<group>";
 		};
+		AABB0003AABB0003AABB0003 /* MailGPGTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = MailGPGTests;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -97,6 +111,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		1F5965BE2F69928A000486DC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABB0004AABB0004AABB0004 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -126,6 +147,8 @@
 				1F5965EB2F69A42F000486DC /* Claude.md */,
 				1F5965B12F699227000486DC /* MailGPG */,
 				1F5965C22F69928A000486DC /* MailGPGExtension */,
+				AABB0003AABB0003AABB0003 /* MailGPGTests */,
+				AABB00CC00CCAABB00CC00CC /* MailGPG.xctestplan */,
 				1F5965B02F699227000486DC /* Products */,
 				1F795F922F714FF000FF6227 /* .github */,
 				1F2792122F7267CD006BF29B /* README.md */,
@@ -137,6 +160,7 @@
 			children = (
 				1F5965AF2F699227000486DC /* MailGPG.app */,
 				1F5965C12F69928A000486DC /* MailGPGExtension.appex */,
+				AABB0002AABB0002AABB0002 /* MailGPGTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -216,6 +240,29 @@
 			productReference = 1F5965C12F69928A000486DC /* MailGPGExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		AABB0005AABB0005AABB0005 /* MailGPGTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AABB000BAABB000BAABB000B /* Build configuration list for PBXNativeTarget "MailGPGTests" */;
+			buildPhases = (
+				AABB0007AABB0007AABB0007 /* Sources */,
+				AABB0004AABB0004AABB0004 /* Frameworks */,
+				AABB0006AABB0006AABB0006 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				AABB0008AABB0008AABB0008 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				AABB0003AABB0003AABB0003 /* MailGPGTests */,
+			);
+			name = MailGPGTests;
+			packageProductDependencies = (
+			);
+			productName = MailGPGTests;
+			productReference = AABB0002AABB0002AABB0002 /* MailGPGTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -231,6 +278,10 @@
 					};
 					1F5965C02F69928A000486DC = {
 						CreatedOnToolsVersion = 26.3;
+					};
+					AABB0005AABB0005AABB0005 = {
+						CreatedOnToolsVersion = 26.3;
+						TestTargetID = 1F5965AE2F699227000486DC;
 					};
 				};
 			};
@@ -250,6 +301,7 @@
 			targets = (
 				1F5965AE2F699227000486DC /* MailGPG */,
 				1F5965C02F69928A000486DC /* MailGPGExtension */,
+				AABB0005AABB0005AABB0005 /* MailGPGTests */,
 			);
 		};
 /* End PBXProject section */
@@ -269,10 +321,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		AABB0006AABB0006AABB0006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 
 /* Begin PBXSourcesBuildPhase section */
+		AABB0007AABB0007AABB0007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		1F5965AB2F699227000486DC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -306,6 +372,11 @@
 			isa = PBXTargetDependency;
 			target = 1F5965C02F69928A000486DC /* MailGPGExtension */;
 			targetProxy = 1F5965D82F69928A000486DC /* PBXContainerItemProxy */;
+		};
+		AABB0008AABB0008AABB0008 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 1F5965AE2F699227000486DC /* MailGPG */;
+			targetProxy = AABB0001AABB0001AABB0001 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -601,6 +672,56 @@
 			};
 			name = Release;
 		};
+		AABB0009AABB0009AABB0009 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZM4SAL8656;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mahaupt.MailGPG.MailGPGTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MailGPG.app/Contents/MacOS/MailGPG";
+			};
+			name = Debug;
+		};
+		AABB000AAABB000AAABB000A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = ZM4SAL8656;
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.mahaupt.MailGPG.MailGPGTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/MailGPG.app/Contents/MacOS/MailGPG";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -627,6 +748,15 @@
 			buildConfigurations = (
 				1F5965DD2F69928A000486DC /* Debug */,
 				1F5965DE2F69928A000486DC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AABB000BAABB000BAABB000B /* Build configuration list for PBXNativeTarget "MailGPGTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AABB0009AABB0009AABB0009 /* Debug */,
+				AABB000AAABB000AAABB000A /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

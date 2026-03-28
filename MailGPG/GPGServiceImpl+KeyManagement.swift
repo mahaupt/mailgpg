@@ -32,65 +32,41 @@ extension GPGServiceImpl {
     /// Returns the best usable key found, or `nil` if none was found.
     /// Keys are auto-imported by GPG on steps 2–4.
     func resolveKey(email: String? = nil, keyID: String? = nil) throws -> KeyInfo? {
-        // ── Step 1: local keyring by email ───────────────────────────────
+        func firstUsable(_ keys: [KeyInfo]) -> KeyInfo? {
+            keys.first { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+                ?? keys.first { !$0.isRevoked }
+        }
+
         if let email {
+            // ── Step 1: local keyring by email ───────────────────────────
             let (localOut, _, localCode) = try gpg(
                 ["--list-keys", "--with-colons", "--fixed-list-mode", email])
-            if localCode == 0 {
-                let keys = parseColonOutput(String(data: localOut, encoding: .utf8) ?? "",
-                                            wantSecretKeys: false)
-                let usable = keys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
-                if let key = usable.first ?? keys.first(where: { !$0.isRevoked }) {
-                    return key
-                }
+            if localCode == 0, let key = firstUsable(
+                parseColonOutput(String(data: localOut, encoding: .utf8) ?? "", wantSecretKeys: false)) {
+                return key
             }
 
-            // ── Step 2: WKD + default keyserver by email ─────────────────
+            // ── Steps 2+3: WKD + keyservers by email ──────────────────────
             // --locate-keys finds a key by e-mail address and auto-imports it.
-            // --auto-key-locate order:
-            //   wkd       = Web Key Directory (HTTPS from recipient's domain)
-            //   keyserver = configured keyserver, defaults to keys.openpgp.org
+            // --auto-key-locate: wkd (Web Key Directory) is tried first on the
+            //   primary keyserver, then each keyserver is tried individually.
             // --keyserver-options timeout=10: don't block indefinitely.
             // --no-auto-check-trustdb: skip trust-DB rebuild (~1 s saved).
-            let (remoteOut, _, remoteCode) = try gpg([
-                "--keyserver", defaultKeyserver,
-                "--locate-keys",
-                "--auto-key-locate", "wkd,keyserver",
-                "--keyserver-options", "timeout=10",
-                "--no-auto-check-trustdb",
-                "--with-colons",
-                "--fixed-list-mode",
-                email
-            ])
-            if remoteCode == 0 {
-                let keys = parseColonOutput(String(data: remoteOut, encoding: .utf8) ?? "",
-                                            wantSecretKeys: false)
-                let usable = keys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
-                if let key = usable.first ?? keys.first(where: { !$0.isRevoked }) {
-                    return key
-                }
-            }
-
-            // ── Step 3: extra keyservers by email ─────────────────────────
-            for ks in extraKeyservers {
-                let (ksOut, _, ksCode) = try gpg([
+            for (i, ks) in keyservers.enumerated() {
+                let autoLocate = i == 0 ? "wkd,keyserver" : "keyserver"
+                let (out, _, code) = try gpg([
                     "--keyserver", ks,
                     "--locate-keys",
-                    "--auto-key-locate", "keyserver",
+                    "--auto-key-locate", autoLocate,
                     "--keyserver-options", "timeout=10",
                     "--no-auto-check-trustdb",
-                    "--with-colons",
-                    "--fixed-list-mode",
+                    "--with-colons", "--fixed-list-mode",
                     email
                 ])
-                guard ksCode == 0 else { continue }
-                let keys = parseColonOutput(String(data: ksOut, encoding: .utf8) ?? "",
-                                            wantSecretKeys: false)
-                let usable = keys.filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
-                if let key = usable.first ?? keys.first(where: { !$0.isRevoked }) {
-                    log.info("resolveKey: found via \(ks) for \(email)")
-                    return key
-                }
+                guard code == 0, let key = firstUsable(
+                    parseColonOutput(String(data: out, encoding: .utf8) ?? "", wantSecretKeys: false))
+                else { continue }
+                return key
             }
         }
 
@@ -98,16 +74,15 @@ extension GPGServiceImpl {
         // --recv-keys produces no colon output, so after a successful import
         // do a local --list-keys to get a proper KeyInfo to return.
         if let keyID {
-            for ks in [defaultKeyserver] + extraKeyservers {
-                var args = ["--keyserver", ks, "--recv-keys", "--keyserver-options", "timeout=10"]
-                args.append(keyID)
-                guard (try gpg(args)).exitCode == 0 else { continue }
+            for ks in keyservers {
+                guard (try gpg(["--keyserver", ks, "--recv-keys",
+                                "--keyserver-options", "timeout=10", keyID])).exitCode == 0
+                else { continue }
                 log.info("resolveKey: recv-keys succeeded for \(keyID) on \(ks)")
                 let (listOut, _, _) = try gpg(
                     ["--list-keys", "--with-colons", "--fixed-list-mode", keyID])
-                let keys = parseColonOutput(String(data: listOut, encoding: .utf8) ?? "",
-                                            wantSecretKeys: false)
-                return keys.first
+                return parseColonOutput(String(data: listOut, encoding: .utf8) ?? "",
+                                        wantSecretKeys: false).first
             }
         }
 

@@ -12,13 +12,11 @@ let log = Logger(subsystem: "com.mahaupt.mailgpg", category: "gpg")
 /// One instance is created per incoming XPC connection by `GPGServiceListener`.
 final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
-    /// Primary keyserver used for all lookups and recv-keys calls.
+    /// Keyservers tried in order for all lookups and recv-keys calls.
+    /// The first entry is the primary; the rest are fallbacks.
     /// Specified explicitly so behaviour is independent of the user's GPG config.
-    let defaultKeyserver = "hkps://keys.openpgp.org"
-
-    /// Additional keyservers tried in order when WKD and the default keyserver
-    /// don't have the key.
-    let extraKeyservers = [
+    let keyservers = [
+        "hkps://keys.openpgp.org",
         "hkps://keys.mailvelope.com",
         "hkps://keyserver.ubuntu.com",
     ]

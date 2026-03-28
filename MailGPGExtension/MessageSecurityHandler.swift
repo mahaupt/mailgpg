@@ -393,7 +393,23 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                 do {
                     let (plaintext, status) = try await GPGService.shared.decrypt(data: data)
                     log.debug("decodedMessage: decrypt succeeded, status=\(String(describing: status))")
-                    result = Self.makeDecodedMessage(data: plaintext, status: status, wasEncrypted: true)
+                    // Check for protected subject (RFC 3156 / Memory Hole):
+                    // if the outer subject is a placeholder like "..." and the
+                    // decrypted message has a real subject, show it via banner.
+                    let outerSubject = Self.headerValue("subject", in: data)
+                    let innerSubject = Self.headerValue("subject", in: plaintext)
+                    let banner: MEDecodedMessageBanner?
+                    if let inner = innerSubject,
+                       let outer = outerSubject,
+                       outer == "..." && inner != outer {
+                        banner = MEDecodedMessageBanner(
+                            title: "Subject: \(inner)",
+                            primaryActionTitle: "",
+                            dismissable: false)
+                    } else {
+                        banner = nil
+                    }
+                    result = Self.makeDecodedMessage(data: plaintext, status: status, wasEncrypted: true, banner: banner)
                 } catch let error as NSError {
                     log.error("decodedMessage: decrypt error — \(error.localizedDescription, privacy: .public)")
                     // Return nil so Mail shows the raw message instead of crashing.
@@ -424,7 +440,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     /// - Parameter wasEncrypted: `true` when returning decrypted plaintext,
     ///   so `MEMessageSecurityInformation.isEncrypted` is set correctly even
     ///   when the status isn't `.encrypted` (e.g. `.signed` after decrypt).
-    static nonisolated func makeDecodedMessage(data: Data, status: SecurityStatus, wasEncrypted: Bool = false) -> MEDecodedMessage? {
+    static nonisolated func makeDecodedMessage(data: Data, status: SecurityStatus, wasEncrypted: Bool = false, banner: MEDecodedMessageBanner? = nil) -> MEDecodedMessage? {
         let meSigners: [MEMessageSigner] = {
             switch status {
             case .signed(let signers), .encrypted(let signers):
@@ -448,6 +464,9 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         )
 
         let context = try? JSONEncoder().encode(status)
+        if let banner {
+            return MEDecodedMessage(data: data, securityInformation: securityInfo, context: context, banner: banner)
+        }
         return MEDecodedMessage(data: data, securityInformation: securityInfo, context: context)
     }
 

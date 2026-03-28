@@ -354,6 +354,7 @@ extension GPGServiceImpl {
 
         var contentType = "text/plain; charset=utf-8"
         var contentTransferEncoding: String? = nil
+        var subject: String? = nil
         var body = plaintextStr
 
         // Check whether the decrypted content is itself a complete MIME entity.
@@ -365,6 +366,7 @@ extension GPGServiceImpl {
                         contentType = ct
                     }
                     contentTransferEncoding = foldedHeaderValue("content-transfer-encoding", in: innerHeaders)
+                    subject = foldedHeaderValue("subject", in: innerHeaders)
                     body = String(plaintextStr[range.upperBound...])
                     log.info("decrypt: inner MIME entity detected, content-type=\(contentType)")
                 }
@@ -380,6 +382,10 @@ extension GPGServiceImpl {
         headers = setHeader("Content-Type", to: contentType, in: headers)
         if let cte = contentTransferEncoding {
             headers = setHeader("Content-Transfer-Encoding", to: cte, in: headers)
+        }
+        if let subject {
+            headers = removeHeader("subject", from: headers)
+            headers = setHeader("Subject", to: subject, in: headers)
         }
         if foldedHeaderValue("mime-version", in: headers) == nil {
             headers += eol + "MIME-Version: 1.0"

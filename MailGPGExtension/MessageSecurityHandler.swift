@@ -307,6 +307,45 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         return nil
     }
 
+    /// Decode RFC 2047 encoded words (e.g. `=?UTF-8?Q?verschl=C3=BCsselter?=`) in a header value.
+    private static func decodeMIMEWords(_ value: String) -> String {
+        let pattern = #"=\?([^?]+)\?([BbQq])\?([^?]*)\?="#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return value }
+        var result = value
+        for match in regex.matches(in: value, range: NSRange(value.startIndex..., in: value)).reversed() {
+            guard let fullRange    = Range(match.range,        in: value),
+                  let charsetRange = Range(match.range(at: 1), in: value),
+                  let encRange     = Range(match.range(at: 2), in: value),
+                  let textRange    = Range(match.range(at: 3), in: value) else { continue }
+            let charset  = String(value[charsetRange])
+            let encoding = String(value[encRange]).uppercased()
+            let text     = String(value[textRange])
+            let strEnc   = String.Encoding(rawValue:
+                CFStringConvertEncodingToNSStringEncoding(
+                    CFStringConvertIANACharSetNameToEncoding(charset as CFString)))
+            var data: Data?
+            if encoding == "B" {
+                data = Data(base64Encoded: text, options: .ignoreUnknownCharacters)
+            } else { // Q-encoding: walk bytes, _ is space, =XX is hex byte
+                var bytes = [UInt8](); var i = text.startIndex
+                while i < text.endIndex {
+                    if text[i] == "=", let j = text.index(i, offsetBy: 3, limitedBy: text.endIndex),
+                       let byte = UInt8(String(text[text.index(after: i)..<j]), radix: 16) {
+                        bytes.append(byte); i = j
+                    } else {
+                        bytes.append(text[i] == "_" ? 0x20 : text[i].asciiValue ?? 0x3F)
+                        i = text.index(after: i)
+                    }
+                }
+                data = Data(bytes)
+            }
+            if let data, let decoded = String(data: data, encoding: strEnc) {
+                result.replaceSubrange(result.range(of: String(value[fullRange]))!, with: decoded)
+            }
+        }
+        return result
+    }
+
     func decodedMessage(forMessageData data: Data) -> MEDecodedMessage? {
         // Cache lookup: try UUID first (for messages we just encoded), then
         // Message-Id (for incoming messages from the server).
@@ -403,7 +442,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                        let outer = outerSubject,
                        outer == "..." && inner != outer {
                         banner = MEDecodedMessageBanner(
-                            title: "Subject: \(inner)",
+                            title: "🔒 Subject: \(Self.decodeMIMEWords(inner))",
                             primaryActionTitle: "",
                             dismissable: false)
                     } else {

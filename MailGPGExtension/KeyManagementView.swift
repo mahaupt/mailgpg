@@ -130,7 +130,6 @@ private struct PublicKeysTab: View {
     @State private var isLoading = false
     @State private var errorMessage: String? = nil
     @State private var searchText = ""
-    @State private var showingImport = false
 
     private var filteredKeys: [KeyInfo] {
         if searchText.isEmpty { return keys }
@@ -162,18 +161,6 @@ private struct PublicKeysTab: View {
             }
         }
         .searchable(text: $searchText, prompt: "Filter by name or email")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showingImport = true
-                } label: {
-                    Label("Import Key", systemImage: "square.and.arrow.down")
-                }
-            }
-        }
-        .sheet(isPresented: $showingImport) {
-            ImportKeyView(onImported: { await loadKeys() })
-        }
         .task { await loadKeys() }
         .refreshable { await loadKeys() }
     }

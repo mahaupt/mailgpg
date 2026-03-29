@@ -20,6 +20,9 @@ Then enable the extension:
 
 Restart Mail if it was already open.
 
+If you do not have a private key yet, create one with GnuPG:
+[How to create a new GPG key](https://docs.github.com/en/authentication/managing-commit-signature-verification/generating-a-new-gpg-key)
+
 ## Features
 
 - **Sign** outgoing emails with your private key (RFC 3156 PGP/MIME)

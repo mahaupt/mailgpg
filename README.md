@@ -20,6 +20,12 @@ Then enable the extension:
 
 Restart Mail if it was already open.
 
+If you have a pin or passkey configured for your key, check your `~/.gnupg/gpg-agent.conf`
+```
+pinentry-program /opt/homebrew/bin/pinentry-mac
+```
+
+
 ## Features
 
 - **Sign** outgoing emails with your private key (RFC 3156 PGP/MIME)

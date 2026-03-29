@@ -12,14 +12,13 @@ let log = Logger(subsystem: "com.mahaupt.mailgpg", category: "gpg")
 /// One instance is created per incoming XPC connection by `GPGServiceListener`.
 final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
-    /// Keyservers tried in order for all lookups and recv-keys calls.
-    /// The first entry is the primary; the rest are fallbacks.
-    /// Specified explicitly so behaviour is independent of the user's GPG config.
-    let keyservers = [
-        "hkps://keys.openpgp.org",
-        "hkps://keys.mailvelope.com",
-        "hkps://keyserver.ubuntu.com",
-    ]
+    private static let defaults = UserDefaults(suiteName: "group.com.mahaupt.mailgpg")
+
+    /// Returns the current keyserver list from shared UserDefaults.
+    /// The extension seeds the defaults on first launch, so this should never be empty.
+    func currentKeyservers() -> [String] {
+        Self.defaults?.stringArray(forKey: "keyservers") ?? []
+    }
 
     // MARK: - Subprocess helper
 

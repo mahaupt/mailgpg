@@ -46,6 +46,11 @@ actor GPGService {
     private let connection = GPGServiceConnection()
 
     private init() {
+        // Seed default keyservers into the shared UserDefaults container so the
+        // host app can read them without duplicating the list.
+        if (Self.defaults?.stringArray(forKey: "keyservers") ?? []).isEmpty {
+            Self.defaults?.set(Self.defaultKeyservers, forKey: "keyservers")
+        }
         // Permanently wire connection availability changes to HostAppReachability.
         // true  = connect() called optimistically → nil (re-checking, not confirmed yet)
         // false = connection failed / host app quit → false (confirmed unavailable)
@@ -291,6 +296,22 @@ actor GPGService {
 
     func setDefaultSigningKey(_ fingerprint: String?) {
         Self.defaults?.set(fingerprint, forKey: "defaultSigningKeyFingerprint")
+    }
+
+    // MARK: - Keyservers (UserDefaults, no XPC needed)
+
+    static let defaultKeyservers = [
+        "hkps://keys.openpgp.org",
+        "hkps://keys.mailvelope.com",
+        "hkps://keyserver.ubuntu.com",
+    ]
+
+    nonisolated func getKeyservers() -> [String] {
+        Self.defaults?.stringArray(forKey: "keyservers") ?? Self.defaultKeyservers
+    }
+
+    nonisolated func setKeyservers(_ servers: [String]) {
+        Self.defaults?.set(servers, forKey: "keyservers")
     }
 }
 

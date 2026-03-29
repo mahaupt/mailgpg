@@ -152,6 +152,15 @@ struct ComposeSecurityView: View {
                 .buttonStyle(.borderless)
 
                 NavigationLink {
+                    KeyserverSettingsView()
+                } label: {
+                    Label("Keyservers", systemImage: "server.rack")
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderless)
+
+                NavigationLink {
                     DiagnosticsView()
                 } label: {
                     Label("Diagnostics", systemImage: "stethoscope")

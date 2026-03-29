@@ -66,9 +66,9 @@
 		1F795F8F2F714FF000FF6227 /* release.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = release.yml; sourceTree = "<group>"; };
 		1F795F902F714FF000FF6227 /* SECRETS.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = SECRETS.md; sourceTree = "<group>"; };
 		1FE946962F6AAE4C0049A0F8 /* SecurityStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SecurityStatus.swift; sourceTree = "<group>"; };
-		E740A487D0E04695BEC7B959 /* TrustLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustLevel.swift; sourceTree = "<group>"; };
 		AABB0002AABB0002AABB0002 /* MailGPGTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = MailGPGTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AABB00CC00CCAABB00CC00CC /* MailGPG.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = MailGPG.xctestplan; sourceTree = "<group>"; };
+		E740A487D0E04695BEC7B959 /* TrustLevel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrustLevel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -201,7 +201,7 @@
 				1F5965AB2F699227000486DC /* Sources */,
 				1F5965AC2F699227000486DC /* Frameworks */,
 				1F5965AD2F699227000486DC /* Resources */,
-					1F5965DF2F69928A000486DC /* Embed Foundation Extensions */,
+				1F5965DF2F69928A000486DC /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
@@ -330,15 +330,7 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
-
 /* Begin PBXSourcesBuildPhase section */
-		AABB0007AABB0007AABB0007 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		1F5965AB2F699227000486DC /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -362,6 +354,13 @@
 				1F3247AF2F69F9C000156831 /* GPGXPCProtocol.swift in Sources */,
 				1F795F852F712CED00FF6227 /* SystemStatus.swift in Sources */,
 				C44923A61DF642298128C68C /* TrustLevel.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		AABB0007AABB0007AABB0007 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

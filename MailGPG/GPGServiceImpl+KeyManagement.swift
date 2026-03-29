@@ -37,6 +37,8 @@ extension GPGServiceImpl {
                 ?? keys.first { !$0.isRevoked }
         }
 
+        let keyservers = currentKeyservers()
+
         if let email {
             // ── Step 1: local keyring by email ───────────────────────────
             let (localOut, _, localCode) = try gpg(

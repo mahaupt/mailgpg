@@ -23,4 +23,7 @@ jobs:
             -project MailGPG.xcodeproj \
             -scheme MailGPG \
             -destination 'platform=macOS' \
-            MACOSX_DEPLOYMENT_TARGET=15.0
+            MACOSX_DEPLOYMENT_TARGET=15.0 \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO

@@ -58,6 +58,7 @@
 		1F3247A72F69F9C000156831 /* GPGXPCError.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPGXPCError.swift; sourceTree = "<group>"; };
 		1F3247A82F69F9C000156831 /* GPGXPCProtocol.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPGXPCProtocol.swift; sourceTree = "<group>"; };
 		1F3247A92F69F9C000156831 /* KeyInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInfo.swift; sourceTree = "<group>"; };
+		1F39BC072F79BEFB00A11EF1 /* test.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = test.yml; sourceTree = "<group>"; };
 		1F5965AF2F699227000486DC /* MailGPG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MailGPG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965C12F69928A000486DC /* MailGPGExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MailGPGExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965EB2F69A42F000486DC /* Claude.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude.md; sourceTree = "<group>"; };
@@ -176,6 +177,7 @@
 		1F795F912F714FF000FF6227 /* workflows */ = {
 			isa = PBXGroup;
 			children = (
+				1F39BC072F79BEFB00A11EF1 /* test.yml */,
 				1F795F8F2F714FF000FF6227 /* release.yml */,
 				1F795F902F714FF000FF6227 /* SECRETS.md */,
 			);

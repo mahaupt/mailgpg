@@ -12,6 +12,15 @@ let log = Logger(subsystem: "com.mahaupt.mailgpg", category: "gpg")
 /// One instance is created per incoming XPC connection by `GPGServiceListener`.
 final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
+    /// When non-nil, all GPG subprocesses run with `GNUPGHOME` set to this path
+    /// instead of the user's default `~/.gnupg`. Intended for testing only.
+    let gnupgHome: String?
+
+    init(gnupgHome: String? = nil) {
+        self.gnupgHome = gnupgHome
+        super.init()
+    }
+
     private static let defaults = UserDefaults(suiteName: "group.com.mahaupt.mailgpg")
 
     /// Returns the current keyserver list from shared UserDefaults.
@@ -45,6 +54,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         var env = ProcessInfo.processInfo.environment
         env.removeValue(forKey: "DYLD_INSERT_LIBRARIES")
         env.removeValue(forKey: "GPG_TTY")
+        if let home = gnupgHome { env["GNUPGHOME"] = home }
         process.environment = env
 
         let outPipe = Pipe()
@@ -189,7 +199,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
               reply: @escaping (Data?, Error?) -> Void) {
         log.info("sign: keyID=\(signerKeyID) dataSize=\(data.count)")
         do {
-            try GPGAgent.ensureRunning()
+            if gnupgHome == nil { try GPGAgent.ensureRunning() }
             let cardCode = (try? gpg(["--card-status"]))?.exitCode ?? -1
             log.info("sign: card-status exit=\(cardCode)")
             let (rawHeaders, body) = splitMessage(data)
@@ -231,7 +241,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     func encrypt(data: Data, recipientFingerprints: [String],
                  reply: @escaping (Data?, Error?) -> Void) {
         do {
-            try GPGAgent.ensureRunning()
+            if gnupgHome == nil { try GPGAgent.ensureRunning() }
             let (rawHeaders, body) = splitMessage(data)
             let innerMIME = buildInnerMIMEEntity(rawHeaders: rawHeaders, body: body)
             // --trust-model always: don't prompt about key trust during batch operations.
@@ -254,7 +264,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                         recipientFingerprints: [String],
                         reply: @escaping (Data?, Error?) -> Void) {
         do {
-            try GPGAgent.ensureRunning()
+            if gnupgHome == nil { try GPGAgent.ensureRunning() }
             log.info("signAndEncrypt: polling card-status…")
             let cardResult = try? gpg(["--card-status"])
             log.info("signAndEncrypt: card-status exit=\(cardResult?.exitCode ?? -1)")
@@ -281,7 +291,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     func decrypt(data: Data,
                  reply: @escaping (Data?, Data?, Error?) -> Void) {
         do {
-            try GPGAgent.ensureRunning()
+            if gnupgHome == nil { try GPGAgent.ensureRunning() }
             // Decode quoted-printable body before extraction so GPG receives clean PGP armor.
             let (rawHdrs, bodyBytes) = splitMessage(data)
             let cte = foldedHeaderValue("content-transfer-encoding", in: rawHdrs)?
@@ -363,6 +373,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             var env = ProcessInfo.processInfo.environment
             env.removeValue(forKey: "DYLD_INSERT_LIBRARIES")
             env.removeValue(forKey: "GPG_TTY")
+            if let home = gnupgHome { env["GNUPGHOME"] = home }
             process.environment = env
             let outPipe = Pipe()
             let errPipe = Pipe()

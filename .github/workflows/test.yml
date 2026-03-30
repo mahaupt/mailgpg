@@ -1,0 +1,25 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Install GPG
+        run: brew install gnupg pinentry
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild test \
+            -project MailGPG.xcodeproj \
+            -scheme MailGPG \
+            -destination 'platform=macOS'

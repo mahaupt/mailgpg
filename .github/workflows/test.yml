@@ -22,4 +22,5 @@ jobs:
           xcodebuild test \
             -project MailGPG.xcodeproj \
             -scheme MailGPG \
-            -destination 'platform=macOS'
+            -destination 'platform=macOS' \
+            MACOSX_DEPLOYMENT_TARGET=15.0

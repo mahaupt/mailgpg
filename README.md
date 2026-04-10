@@ -30,11 +30,12 @@ If you do not have a private key yet, create one with GnuPG:
 
 ## Features
 
-- **Sign** outgoing emails with your private key (RFC 3156 PGP/MIME)
+- **PGP/MIME** compliant (RFC 3156) — tested compatible with Thunderbird, Proton Mail, and Mailvelope
+- **Sign** outgoing emails with your private key
 - **Encrypt** outgoing emails to recipients with known public keys
 - **Decrypt** incoming encrypted emails inline in Mail
 - **Verify** signatures on incoming signed emails
-- **Key lookup** — automatically fetches missing public keys from keyservers
+- **Key lookup** — automatically fetches missing public keys from keyservers when encryption is enabled
 - **Key management** — import, delete, set trust levels, manage public and private keys
 - Per-compose controls via a panel in the Mail compose window
 
@@ -45,7 +46,7 @@ MailGPG uses a two-process design required by Apple's MailKit sandboxing:
 - **Host app** (`MailGPG.app`) — runs unsandboxed as a background service; executes GPG subprocesses and exposes results over XPC
 - **Mail extension** (`MailGPGExtension`) — sandboxed MailKit extension loaded by Mail; handles all UI and delegates GPG operations to the host app via XPC
 
-The host app registers itself as a login item on first launch (`SMAppService`) and is automatically started at login.
+The host app is registered as a login item by the Homebrew cask and is automatically started at login.
 
 ## License
 

@@ -11,8 +11,8 @@ cask "mailgpg" do
   desc "Native macOS Mail extension for GPG email encryption and signing"
   homepage "https://github.com/mahaupt/mailgpg"
 
-  # Minimum macOS version for Mail extensions
-  depends_on macos: ">= :monterey"
+  # Minimum macOS version
+  depends_on macos: ">= :sonoma"
 
   # GPG binary and GUI-compatible pinentry are required for all operations
   depends_on formula: "gnupg"

@@ -4,7 +4,7 @@ Native macOS Mail extension for OpenPGP — sign, encrypt, and decrypt emails us
 
 ## Requirements
 
-- macOS 12 Monterey or later
+- macOS 14 Sonoma or later
 - Apple Mail
 - [GnuPG](https://gnupg.org) (`brew install gnupg`)
 - [pinentry-mac](https://github.com/GPGTools/pinentry) (`brew install pinentry-mac`)

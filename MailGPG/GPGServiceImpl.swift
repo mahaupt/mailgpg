@@ -351,35 +351,45 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     func verify(data: Data, signature: Data,
                 reply: @escaping (Data?, Error?) -> Void) {
         try? GPGAgent.ensureRunning()
-        // `gpg --verify` requires the signature and data as *files*, not stdin.
-        // We write them to the system temp directory and clean up afterward.
+        // Keep only the detached signature on disk; stream the signed data via stdin.
         let tmp     = FileManager.default.temporaryDirectory
-        let dataURL = tmp.appendingPathComponent(UUID().uuidString)
         let sigURL  = tmp.appendingPathComponent(UUID().uuidString + ".asc")
         defer {
-            try? FileManager.default.removeItem(at: dataURL)
             try? FileManager.default.removeItem(at: sigURL)
         }
         do {
-            try data.write(to: dataURL)
-            try signature.write(to: sigURL)
+            guard FileManager.default.createFile(
+                atPath: sigURL.path,
+                contents: signature,
+                attributes: [.posixPermissions: 0o600]
+            ) else {
+                throw GPGXPCError.make(.gpgFailed, message: "Could not create temporary signature file")
+            }
 
             // --status-fd 1: [GNUPG:] lines go to stdout so we can capture them cleanly.
             let gpgPath = try GPGLocator.locate()
             let process = Process()
             process.executableURL = URL(fileURLWithPath: gpgPath)
             process.arguments = ["--verify", "--batch", "--status-fd", "1",
-                                  sigURL.path, dataURL.path]
+                                  sigURL.path, "-"]
             var env = ProcessInfo.processInfo.environment
             env.removeValue(forKey: "DYLD_INSERT_LIBRARIES")
             env.removeValue(forKey: "GPG_TTY")
             if let home = gnupgHome { env["GNUPGHOME"] = home }
             process.environment = env
+            let inPipe = Pipe()
             let outPipe = Pipe()
             let errPipe = Pipe()
+            process.standardInput = inPipe
             process.standardOutput = outPipe
             process.standardError  = errPipe
             try process.run()
+
+            DispatchQueue.global(qos: .userInitiated).async {
+                inPipe.fileHandleForWriting.write(data)
+                inPipe.fileHandleForWriting.closeFile()
+            }
+
             process.waitUntilExit()
 
             let stdout = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""

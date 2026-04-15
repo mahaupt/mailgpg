@@ -85,9 +85,9 @@ final class MIMEHelpersTests: XCTestCase {
     }
 
     func testDecodeQP_hexEncodedHighByte() {
-        // =C3=A9 in QP: each =XX is decoded independently to a UnicodeScalar from its UInt8
+        // =C3=A9 is UTF-8 for é — must decode the byte pair together, not as separate scalars
         let result = svc.decodeQuotedPrintable("=C3=A9")
-        XCTAssertEqual(result, "\u{C3}\u{A9}")
+        XCTAssertEqual(result, "é")
     }
 
     func testDecodeQP_passthrough_plainText() {
@@ -259,6 +259,63 @@ final class MIMEHelpersTests: XCTestCase {
         XCTAssert(str.contains("-----END PGP MESSAGE-----"),   "str=\(str)")
     }
 
+    func testExtractPGPPayload_multipartAlternativeQuotedPrintable() {
+        let msg = """
+            From: sender@example.invalid
+            To: recipient@example.invalid
+            Subject: Inline QP test
+            Content-Type: multipart/alternative; boundary="BOUND"
+
+            --BOUND
+            Content-Transfer-Encoding: quoted-printable
+            Content-Type: text/plain; charset=utf-8
+
+            Intro text
+
+            -----BEGIN PGP MESSAGE-----
+
+            =
+            wV4DTESTPAYLOADONE=
+            123
+            FINALPAYLOAD=3D=3D
+            =3DABCD
+            -----END PGP MESSAGE-----
+
+            Outro text
+            --BOUND
+            Content-Type: text/html; charset=utf-8
+
+            <p>HTML copy</p>
+            --BOUND--
+            """
+        let result = svc.extractPGPPayload(from: msg.data(using: .utf8)!)
+        let str = String(data: result, encoding: .utf8) ?? ""
+        XCTAssert(str.hasPrefix("-----BEGIN PGP MESSAGE-----"), "str=\(str.prefix(80))")
+        XCTAssert(str.contains("-----END PGP MESSAGE-----"), "str=\(str.suffix(80))")
+        XCTAssertFalse(str.contains("=3D"), "QP escapes should be decoded; str=\(str)")
+        XCTAssertFalse(str.contains("Intro text"), "surrounding prose must not be in payload; str=\(str)")
+        XCTAssertFalse(str.contains("Outro text"), "surrounding prose must not be in payload; str=\(str)")
+    }
+
+    func testExtractPGPPayload_base64TextPlainPart() {
+        let armor = "-----BEGIN PGP MESSAGE-----\nhEwD\n-----END PGP MESSAGE-----\n"
+        let encoded = Data(armor.utf8).base64EncodedString()
+        let msg = """
+            Content-Type: multipart/alternative; boundary="BOUND"
+
+            --BOUND
+            Content-Type: text/plain; charset=utf-8
+            Content-Transfer-Encoding: base64
+
+            \(encoded)
+            --BOUND--
+            """
+        let result = svc.extractPGPPayload(from: msg.data(using: .utf8)!)
+        let str = String(data: result, encoding: .utf8) ?? ""
+        XCTAssertTrue(str.contains("-----BEGIN PGP MESSAGE-----"), "str=\(str)")
+        XCTAssertTrue(str.contains("-----END PGP MESSAGE-----"), "str=\(str)")
+    }
+
     func testExtractPGPPayload_plainMessage_returnsOriginal() {
         let msg  = "From: alice@example.com\n\nHello, no PGP here."
         let data = msg.data(using: .utf8)!
@@ -366,5 +423,88 @@ final class MIMEHelpersTests: XCTestCase {
         // Body portion should not contain \r\n since outer headers are LF
         let bodyStart = result.range(of: "\n\n").map { result[$0.upperBound...] }.map(String.init) ?? result
         XCTAssertFalse(bodyStart.contains("\r\n"), "CRLF body not normalised; body=\(bodyStart.debugDescription)")
+    }
+
+    // MARK: - reconstructDecryptedMessage (inline PGP)
+
+    func testReconstructDecryptedMessage_inlinePGPPreservesSurroundingText() throws {
+        let msg = """
+            From: notifications@example.invalid
+            To: assigned@example.invalid
+            Subject: Re: Inline reply
+            Mime-Version: 1.0
+            Content-Type: multipart/alternative;
+             boundary="--==_mimepart_test"
+            Content-Transfer-Encoding: 7bit
+
+            ----==_mimepart_test
+            Content-Type: text/plain;
+             charset=UTF-8
+            Content-Transfer-Encoding: 7bit
+
+            Someone left a comment
+
+            -----BEGIN PGP MESSAGE-----
+
+            wV4DTESTPAYLOADLINEONE123
+            FINALPAYLOAD==
+            =ABCD
+            -----END PGP MESSAGE-----
+
+            Reply to this message
+            ----==_mimepart_test
+            Content-Type: text/html;
+             charset=UTF-8
+
+            <p>HTML part</p>
+            ----==_mimepart_test--
+            """
+        let result = String(data: svc.reconstructDecryptedMessage(
+            original: Data(msg.utf8),
+            plaintext: Data("Secret replacement".utf8)
+        ), encoding: .utf8) ?? ""
+        XCTAssert(result.lowercased().contains("content-type: text/plain"), "result=\(result)")
+        XCTAssertFalse(result.lowercased().contains("multipart/alternative"), "result=\(result)")
+        let (_, bodyData) = svc.splitMessage(result.data(using: .utf8)!)
+        let body = String(data: bodyData, encoding: .utf8) ?? ""
+        XCTAssert(body.contains("Someone left a comment"), "body=\(body)")
+        XCTAssert(body.contains("Secret replacement"), "body=\(body)")
+        XCTAssert(body.contains("Reply to this message"), "body=\(body)")
+        XCTAssertFalse(body.contains("-----BEGIN PGP MESSAGE-----"), "PGP block should be replaced; body=\(body)")
+    }
+
+    func testReconstructDecryptedMessage_inlinePGPWithQuotedPrintableUnicode() throws {
+        let msg = """
+            From: sender@example.invalid
+            To: recipient@example.invalid
+            Subject: Unicode inline
+            Content-Type: multipart/alternative; boundary="UB"
+
+            --UB
+            Content-Type: text/plain; charset=utf-8
+            Content-Transfer-Encoding: quoted-printable
+
+            Gr=C3=BC=C3=9Fe vor dem Block
+
+            -----BEGIN PGP MESSAGE-----
+
+            TESTPAYLOAD=3D=3D
+            =3DCRC
+            -----END PGP MESSAGE-----
+
+            Tsch=C3=BC=C3=9F nach dem Block
+            --UB--
+            """
+        let result = String(data: svc.reconstructDecryptedMessage(
+            original: Data(msg.utf8),
+            plaintext: Data("Entschlüsselter Inhalt".utf8)
+        ), encoding: .utf8) ?? ""
+        let (_, bodyData) = svc.splitMessage(result.data(using: .utf8)!)
+        let body = String(data: bodyData, encoding: .utf8) ?? ""
+        XCTAssert(body.contains("Grüße vor dem Block"), "body=\(body)")
+        XCTAssert(body.contains("Entschlüsselter Inhalt"), "body=\(body)")
+        XCTAssert(body.contains("Tschüß nach dem Block"), "body=\(body)")
+        XCTAssertFalse(body.contains("=C3=BC"), "QP escapes should be decoded; body=\(body)")
+        XCTAssertFalse(body.contains("-----BEGIN PGP MESSAGE-----"), "body=\(body)")
     }
 }

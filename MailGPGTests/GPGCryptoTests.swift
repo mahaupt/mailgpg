@@ -72,6 +72,70 @@ final class GPGCryptoTests: XCTestCase {
         XCTAssertTrue(signers.isEmpty, "Encrypt-only message should have no signers")
     }
 
+    func testDecryptInlinePGPPreservesSurroundingText() throws {
+        let fp = homedir.fingerprint
+        let secret = "Inline secret body"
+        let (ciphertext, stderr, code) = try homedir.run(
+            ["--armor", "--trust-model", "always", "--encrypt", "--recipient", fp],
+            input: Data(secret.utf8)
+        )
+        XCTAssertEqual(code, 0, "Direct GPG encrypt failed: \(stderr)")
+
+        let armor = String(data: ciphertext, encoding: .utf8)!
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let message = """
+            From: sender@example.com
+            To: \(homedir.email)
+            Subject: Inline
+            Content-Type: multipart/alternative; boundary="BOUND"
+
+            --BOUND
+            Content-Type: text/plain; charset=utf-8
+            Content-Transfer-Encoding: 7bit
+
+            Prefix before block
+
+            \(armor)
+
+            Suffix after block
+            --BOUND
+            Content-Type: text/html; charset=utf-8
+            Content-Transfer-Encoding: 7bit
+
+            <p>HTML untouched</p>
+            --BOUND--
+            """
+
+        var plain: Data?
+        var statusRaw: Data?
+        let sem = DispatchSemaphore(value: 0)
+        svc.decrypt(data: Data(message.utf8)) { plainData, statusData, error in
+            XCTAssertNil(error, "Decrypt error: \(String(describing: error))")
+            plain = plainData
+            statusRaw = statusData
+            sem.signal()
+        }
+        sem.wait()
+
+        let plainStr = String(data: try XCTUnwrap(plain), encoding: .utf8) ?? ""
+        XCTAssert(plainStr.lowercased().contains("content-type: text/plain"), "plain=\(plainStr)")
+        XCTAssertFalse(plainStr.lowercased().contains("multipart/alternative"), "plain=\(plainStr)")
+        let (_, bodyData) = svc.splitMessage(Data(plainStr.utf8))
+        let body = String(data: bodyData, encoding: .utf8) ?? ""
+        XCTAssertTrue(body.contains("Prefix before block"), "body=\(body)")
+        XCTAssertTrue(body.contains(secret), "body=\(body)")
+        XCTAssertTrue(body.contains("Suffix after block"), "body=\(body)")
+        XCTAssertFalse(body.contains("-----BEGIN PGP MESSAGE-----"), "body=\(body)")
+
+        let status = try XCTUnwrap(
+            statusRaw.flatMap { try? xpcDecode(SecurityStatus.self, from: $0) },
+            "Could not decode SecurityStatus")
+        guard case .encrypted(let signers) = status else {
+            XCTFail("Expected .encrypted, got \(status)"); return
+        }
+        XCTAssertTrue(signers.isEmpty, "Encrypt-only message should have no signers")
+    }
+
     // MARK: - Sign + verify round-trip
 
     func testSignRoundTrip() throws {

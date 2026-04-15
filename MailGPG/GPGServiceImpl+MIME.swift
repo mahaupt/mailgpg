@@ -8,19 +8,48 @@ extension GPGServiceImpl {
 
     // MARK: - RFC 2822 / MIME helpers
 
-    /// Decode a quoted-printable encoded string (RFC 2045).
-    /// Removes soft line breaks (=\r\n, =\n) and replaces =XX with the corresponding byte.
-    func decodeQuotedPrintable(_ s: String) -> String {
-        var out = s.replacingOccurrences(of: "=\r\n", with: "")
-                   .replacingOccurrences(of: "=\n", with: "")
-        var result = ""; var i = out.startIndex
-        while i < out.endIndex {
-            if out[i] == "=", let j = out.index(i, offsetBy: 3, limitedBy: out.endIndex),
-               let byte = UInt8(String(out[out.index(after: i)..<j]), radix: 16) {
-                result += String(UnicodeScalar(byte)); i = j
-            } else { result.append(out[i]); i = out.index(after: i) }
+    /// Decode a quoted-printable encoded body (RFC 2045) into raw bytes.
+    /// Decoding to Data first preserves multi-byte UTF-8 sequences (e.g. =C3=A9 → é)
+    /// instead of mapping each =XX byte to a separate UnicodeScalar.
+    private func decodeQuotedPrintableData(_ s: String) -> Data {
+        let bytes = Array(s.utf8)
+        var result: [UInt8] = []
+        result.reserveCapacity(bytes.count)
+
+        func isHex(_ b: UInt8) -> Bool {
+            (48...57).contains(b) || (65...70).contains(b) || (97...102).contains(b)
         }
-        return result
+        func hexVal(_ b: UInt8) -> UInt8 {
+            switch b {
+            case 48...57:  return b - 48
+            case 65...70:  return b - 55
+            default:       return b - 87
+            }
+        }
+
+        var i = 0
+        while i < bytes.count {
+            if bytes[i] == 61 { // '='
+                // soft line break =\r\n
+                if i + 2 < bytes.count, bytes[i+1] == 13, bytes[i+2] == 10 { i += 3; continue }
+                // soft line break =\n
+                if i + 1 < bytes.count, bytes[i+1] == 10 { i += 2; continue }
+                // =XX hex pair
+                if i + 2 < bytes.count, isHex(bytes[i+1]), isHex(bytes[i+2]) {
+                    result.append((hexVal(bytes[i+1]) << 4) | hexVal(bytes[i+2]))
+                    i += 3; continue
+                }
+            }
+            result.append(bytes[i])
+            i += 1
+        }
+        return Data(result)
+    }
+
+    /// Decode a quoted-printable encoded string (RFC 2045) into Unicode text.
+    func decodeQuotedPrintable(_ s: String) -> String {
+        let data = decodeQuotedPrintableData(s)
+        return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
     }
 
     /// Split a raw RFC 2822 message into its header block (as String) and body (as Data).
@@ -291,46 +320,122 @@ extension GPGServiceImpl {
         return result
     }
 
+    // MARK: - Inline PGP helpers
+
+    /// Extract a named parameter value from a MIME header value string.
+    /// e.g. headerParameter("boundary", in: "multipart/alternative; boundary=\"ABC\"") → "ABC"
+    private func headerParameter(_ name: String, in headerValue: String) -> String? {
+        let lower = headerValue.lowercased()
+        let needle = name.lowercased() + "="
+        guard let range = lower.range(of: needle) else { return nil }
+        let start = headerValue[range.upperBound...]
+        if start.hasPrefix("\"") {
+            let afterQuote = start.index(after: start.startIndex)
+            guard let endQuote = start[afterQuote...].firstIndex(of: "\"") else { return nil }
+            return String(start[afterQuote..<endQuote])
+        }
+        let end = start.firstIndex(where: { ";,\r\n \t".contains($0) }) ?? start.endIndex
+        return String(start[..<end])
+    }
+
+    /// Decode a MIME part body according to its Content-Transfer-Encoding.
+    private func decodedTransferBody(_ body: String, encoding: String?) -> String {
+        switch encoding?.lowercased().trimmingCharacters(in: .whitespacesAndNewlines) {
+        case "quoted-printable":
+            return decodeQuotedPrintable(body)
+        case "base64":
+            if let data = Data(base64Encoded: body, options: .ignoreUnknownCharacters),
+               let str = String(data: data, encoding: .utf8) {
+                return str
+            }
+            return body
+        default:
+            return body
+        }
+    }
+
+    /// Normalize all line endings in text to the given style.
+    private func normalizeLineEndings(in text: String, to eol: String) -> String {
+        let lf = text.replacingOccurrences(of: "\r\n", with: "\n")
+        return eol == "\r\n" ? lf.replacingOccurrences(of: "\n", with: "\r\n") : lf
+    }
+
+    /// Find the range of the first inline PGP block in a decoded body string.
+    private func inlinePGPRange(in body: String) -> Range<String.Index>? {
+        guard let start = body.range(of: "-----BEGIN PGP MESSAGE-----"),
+              let end = body.range(of: "-----END PGP MESSAGE-----",
+                                   range: start.lowerBound..<body.endIndex)
+        else { return nil }
+        return start.lowerBound..<end.upperBound
+    }
+
+    /// Find the text/plain part in a message, decode its content-transfer-encoding,
+    /// and return the envelope headers, part content-type, and decoded body text.
+    /// Handles top-level text/plain and one level of multipart (alternative/mixed).
+    private func findTextPlainBody(in message: String) -> (envelopeHeaders: String, contentType: String, decodedBody: String)? {
+        let (headers, bodyData) = splitMessage(message.data(using: .utf8) ?? Data())
+        let body = String(data: bodyData, encoding: .utf8) ?? ""
+        let ct = foldedHeaderValue("content-type", in: headers) ?? "text/plain; charset=utf-8"
+
+        if ct.lowercased().contains("multipart/"),
+           let boundary = headerParameter("boundary", in: ct) {
+            let delim = "--" + boundary
+            let parts = body.components(separatedBy: delim)
+            guard parts.count >= 3 else { return nil }
+            for idx in 1..<(parts.count - 1) {
+                var piece = parts[idx]
+                // Strip the leading newline(s) after the boundary delimiter
+                while piece.first == "\r" || piece.first == "\n" { piece.removeFirst() }
+                let (partHeaders, partBodyData) = splitMessage(piece.data(using: .utf8) ?? Data())
+                let partCT = foldedHeaderValue("content-type", in: partHeaders) ?? "text/plain; charset=utf-8"
+                guard partCT.lowercased().hasPrefix("text/plain") else { continue }
+                let cte = foldedHeaderValue("content-transfer-encoding", in: partHeaders)
+                let partBody = String(data: partBodyData, encoding: .utf8) ?? ""
+                return (headers, partCT, decodedTransferBody(partBody, encoding: cte))
+            }
+            return nil
+        }
+
+        guard ct.lowercased().hasPrefix("text/plain") else { return nil }
+        let cte = foldedHeaderValue("content-transfer-encoding", in: headers)
+        return (headers, ct, decodedTransferBody(body, encoding: cte))
+    }
+
     /// Extract the raw PGP ciphertext from an incoming message so GPG can decrypt it.
     /// Handles both multipart/encrypted (RFC 3156) and inline PGP.
     func extractPGPPayload(from data: Data) -> Data {
         guard let str = String(data: data, encoding: .utf8) else { return data }
 
-        // ── multipart/encrypted ──────────────────────────────────────────────
-        if str.contains("multipart/encrypted") {
-            // Find the boundary value — may be quoted or unquoted.
-            var boundary: String? = nil
-            if let s = str.range(of: "boundary=\""),
-               let e = str.range(of: "\"", range: s.upperBound..<str.endIndex) {
-                boundary = String(str[s.upperBound..<e.lowerBound])
-            } else if let s = str.range(of: "boundary=") {
-                let rest = String(str[s.upperBound...])
-                let end  = rest.firstIndex(where: { ";,\r\n \t".contains($0) })
-                boundary = end.map { String(rest[..<$0]) } ?? rest
-            }
-
-            if let b = boundary {
-                let delim = "--" + b
-                let parts = str.components(separatedBy: delim)
-                // parts: [preamble, version-part, encrypted-part, epilogue]
-                if parts.count >= 3 {
-                    let encPart = parts[2]
-                    for sep in ["\r\n\r\n", "\n\n"] {
-                        if let bodyStart = encPart.range(of: sep) {
-                            let pgp = String(encPart[bodyStart.upperBound...])
-                                .trimmingCharacters(in: .whitespacesAndNewlines)
-                            return pgp.data(using: .utf8) ?? data
-                        }
+        // ── multipart/encrypted (RFC 3156) ───────────────────────────────────
+        let (headers, _) = splitMessage(data)
+        if let ct = foldedHeaderValue("content-type", in: headers),
+           ct.lowercased().contains("multipart/encrypted"),
+           let boundary = headerParameter("boundary", in: ct) {
+            let delim = "--" + boundary
+            let parts = str.components(separatedBy: delim)
+            // parts: [preamble, version-part, encrypted-part, epilogue]
+            if parts.count >= 3 {
+                let encPart = parts[2]
+                for sep in ["\r\n\r\n", "\n\n"] {
+                    if let bodyStart = encPart.range(of: sep) {
+                        let pgp = String(encPart[bodyStart.upperBound...])
+                            .trimmingCharacters(in: .whitespacesAndNewlines)
+                        return pgp.data(using: .utf8) ?? data
                     }
                 }
             }
         }
 
-        // ── inline PGP ───────────────────────────────────────────────────────
-        if let start = str.range(of: "-----BEGIN PGP MESSAGE-----"),
-           let end   = str.range(of: "-----END PGP MESSAGE-----") {
-            let endIdx = str.index(end.upperBound, offsetBy: 0)
-            return String(str[start.lowerBound..<endIdx]).data(using: .utf8) ?? data
+        // ── inline PGP ──────────────────────────────────────────────────────
+        // Try MIME-aware extraction first (decodes CTE, finds text/plain part)
+        if let (_, _, decodedBody) = findTextPlainBody(in: str),
+           let range = inlinePGPRange(in: decodedBody) {
+            return String(decodedBody[range]).data(using: .utf8) ?? data
+        }
+
+        // Fallback: raw search on the whole message
+        if let range = inlinePGPRange(in: str) {
+            return String(str[range]).data(using: .utf8) ?? data
         }
 
         return data
@@ -340,7 +445,10 @@ extension GPGServiceImpl {
     /// and the decrypted payload. `MEDecodedMessage` requires a full RFC 2822
     /// message, not just the raw decrypted bytes.
     ///
-    /// We handle two formats:
+    /// We handle three cases:
+    ///  • Inline PGP: the original message contains a PGP block embedded in a
+    ///    text/plain body (possibly inside multipart/alternative). The encrypted
+    ///    block is replaced with the decrypted text; surrounding prose is kept.
     ///  • Full inner MIME entity (RFC 3156-compliant, used by Thunderbird etc.):
     ///    the decrypted bytes start with MIME headers (e.g. Content-Type:) followed
     ///    by a blank line and the body. We extract those headers and use them.
@@ -348,9 +456,31 @@ extension GPGServiceImpl {
     ///    the decrypted bytes are the raw body with no headers. We default to
     ///    text/plain and use the raw bytes as the body.
     func reconstructDecryptedMessage(original: Data, plaintext: Data) -> Data {
+        let plaintextStr = String(data: plaintext, encoding: .utf8) ?? ""
+
+        // ── inline PGP: replace just the encrypted block, keep surrounding text ──
+        if let originalStr = String(data: original, encoding: .utf8),
+           let (envHeaders, partCT, decodedBody) = findTextPlainBody(in: originalStr),
+           let pgpRange = inlinePGPRange(in: decodedBody) {
+            log.info("decrypt: rebuilt inline PGP message as text/plain")
+            let eol = lineEnding(in: envHeaders)
+            let rewrittenBody = decodedBody.replacingCharacters(in: pgpRange, with: plaintextStr)
+
+            var headers = removeHeader("content-type", from: envHeaders)
+            headers = removeHeader("content-transfer-encoding", from: headers)
+            headers = removeHeader("x-mailgpg-sessionid", from: headers)
+            headers = setHeader("Content-Type", to: partCT, in: headers)
+            headers = setHeader("Content-Transfer-Encoding", to: "8bit", in: headers)
+            if foldedHeaderValue("mime-version", in: headers) == nil {
+                headers += eol + "MIME-Version: 1.0"
+            }
+            let normalizedBody = normalizeLineEndings(in: rewrittenBody, to: eol)
+            return (headers + eol + eol + normalizedBody).data(using: .utf8) ?? Data(plaintextStr.utf8)
+        }
+
+        // ── multipart/encrypted (RFC 3156) ───────────────────────────────────
         let (outerHeaders, _) = splitMessage(original)
         let eol = lineEnding(in: outerHeaders)
-        let plaintextStr = String(data: plaintext, encoding: .utf8) ?? ""
 
         var contentType = "text/plain; charset=utf-8"
         var contentTransferEncoding: String? = nil
@@ -395,9 +525,7 @@ extension GPGServiceImpl {
         // the reconstructed message has consistent endings. A mismatch (e.g. LF outer
         // headers + CRLF body from GPG output) lets splitMessage() find a \r\n\r\n
         // inside the quoted body when a reply is composed, corrupting the header split.
-        let normalizedBody = eol == "\r\n"
-            ? body.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
-            : body.replacingOccurrences(of: "\r\n", with: "\n")
+        let normalizedBody = normalizeLineEndings(in: body, to: eol)
 
         let fullMessage = headers + eol + eol + normalizedBody
         log.info("decrypt: reconstructed \(fullMessage.count) bytes (plaintext was \(plaintext.count) bytes)")

@@ -39,17 +39,6 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
     func annotateAddressesForSession(_ session: MEComposeSession) async -> [MEEmailAddress: MEAddressAnnotation] {
         guard let state = ComposeStateStore.shared.state(for: session.sessionID) else { return [:] }
 
-        // Skip keyserver lookups entirely when encryption is not requested.
-        // This prevents leaking recipient addresses to keyservers for plain mail.
-        // MailKit will call this again if the user later enables encryption.
-        guard session.composeContext.shouldEncrypt else {
-            await MainActor.run {
-                state.recipientKeyStatus = [:]
-                state.recipientKeys = [:]
-            }
-            return [:]
-        }
-
         let addresses = session.mailMessage.allRecipientAddresses
         var annotations: [MEEmailAddress: MEAddressAnnotation] = [:]
         var keyStatus: [String: RecipientKeyStatus] = [:]

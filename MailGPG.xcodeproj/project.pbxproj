@@ -61,7 +61,6 @@
 		1F39BC072F79BEFB00A11EF1 /* test.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = test.yml; sourceTree = "<group>"; };
 		1F5965AF2F699227000486DC /* MailGPG.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MailGPG.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		1F5965C12F69928A000486DC /* MailGPGExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = MailGPGExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		1F5965EB2F69A42F000486DC /* Claude.md */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Claude.md; sourceTree = "<group>"; };
 		1F795F842F712CED00FF6227 /* SystemStatus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SystemStatus.swift; sourceTree = "<group>"; };
 		1F795F8D2F714FF000FF6227 /* mailgpg.rb */ = {isa = PBXFileReference; lastKnownFileType = text.script.ruby; path = mailgpg.rb; sourceTree = "<group>"; };
 		1F795F8F2F714FF000FF6227 /* release.yml */ = {isa = PBXFileReference; lastKnownFileType = text.yaml; path = release.yml; sourceTree = "<group>"; };
@@ -145,7 +144,6 @@
 			isa = PBXGroup;
 			children = (
 				1F3247A62F69F97400156831 /* Shared */,
-				1F5965EB2F69A42F000486DC /* Claude.md */,
 				1F5965B12F699227000486DC /* MailGPG */,
 				1F5965C22F69928A000486DC /* MailGPGExtension */,
 				AABB0003AABB0003AABB0003 /* MailGPGTests */,

@@ -40,9 +40,11 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
         guard let state = ComposeStateStore.shared.state(for: session.sessionID) else { return [:] }
 
         let addresses = session.mailMessage.allRecipientAddresses
+        let shouldEncrypt = session.composeContext.shouldEncrypt
         var annotations: [MEEmailAddress: MEAddressAnnotation] = [:]
         var keyStatus: [String: RecipientKeyStatus] = [:]
         var recipientKeys: [String: KeyInfo] = [:]
+        let localKeysByEmail: [String: KeyInfo]
 
         // Mark all as loading immediately so the UI shows spinners right away.
         for address in addresses {
@@ -51,21 +53,52 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
         }
         await MainActor.run { state.recipientKeyStatus = keyStatus }
 
+        if shouldEncrypt {
+            localKeysByEmail = [:]
+        } else {
+            do {
+                localKeysByEmail = Dictionary(
+                    try await GPGService.shared.listPublicKeys()
+                        .filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+                        .map { ($0.email.lowercased(), $0) },
+                    uniquingKeysWith: { first, _ in first }
+                )
+            } catch {
+                for address in addresses {
+                    let email = address.bareAddress
+                    keyStatus[email] = .notFound
+                    annotations[address] = .warning(withLocalizedDescription: "Local key lookup failed")
+                }
+
+                await MainActor.run {
+                    state.recipientKeyStatus = keyStatus
+                    state.recipientKeys = [:]
+                }
+                return annotations
+            }
+        }
+
         // Look up each recipient's public key via XPC → GPG.
         for address in addresses {
             let email = address.bareAddress
             do {
-                if let key = try await GPGService.shared.lookupKey(email: email) {
+                let key = shouldEncrypt
+                    ? try await GPGService.shared.lookupKey(email: email)
+                    : localKeysByEmail[email]
+
+                if let key {
                     keyStatus[email] = .found
                     recipientKeys[email] = key
                     annotations[address] = .success(withLocalizedDescription: "Key: \(key.keyID)")
                 } else {
                     keyStatus[email] = .notFound
-                    annotations[address] = .warning(withLocalizedDescription: "No public key")
+                    let message = shouldEncrypt ? "No public key" : "No local public key"
+                    annotations[address] = .warning(withLocalizedDescription: message)
                 }
             } catch {
                 keyStatus[email] = .notFound
-                annotations[address] = .warning(withLocalizedDescription: "Key lookup failed")
+                let message = shouldEncrypt ? "Key lookup failed" : "Local key lookup failed"
+                annotations[address] = .warning(withLocalizedDescription: message)
             }
         }
 
@@ -86,8 +119,6 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
     // MARK: - Headers
 
     func additionalHeaders(for session: MEComposeSession) -> [String: [String]] {
-        guard let state = ComposeStateStore.shared.state(for: session.sessionID) else { return [:] }
-
         // X-MailGPG-SessionID lets MessageSecurityHandler.encode() look up the
         // correct ComposeSessionState even when multiple compose windows are open.
         // MEMessageSecurityHandler only receives MEMessage + MEComposeContext, with

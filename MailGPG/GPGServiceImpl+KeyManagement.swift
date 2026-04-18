@@ -80,7 +80,7 @@ extension GPGServiceImpl {
                 guard (try gpg(["--keyserver", ks, "--recv-keys",
                                 "--keyserver-options", "timeout=10", keyID])).exitCode == 0
                 else { continue }
-                log.info("resolveKey: recv-keys succeeded for \(keyID) on \(ks)")
+                log.info("resolveKey: recv-keys succeeded on configured keyserver")
                 let (listOut, _, _) = try gpg(
                     ["--list-keys", "--with-colons", "--fixed-list-mode", keyID])
                 return parseColonOutput(String(data: listOut, encoding: .utf8) ?? "",
@@ -97,10 +97,10 @@ extension GPGServiceImpl {
                 ["--list-secret-keys", "--with-colons", "--fixed-list-mode"])
             let keys = parseColonOutput(String(data: out, encoding: .utf8) ?? "",
                                         wantSecretKeys: true)
-            log.info("listSecretKeys: found \(keys.count) key(s): \(keys.map { "\($0.keyID)(\($0.email)) revoked=\($0.isRevoked)" }.joined(separator: ", "))")
+            log.info("listSecretKeys: found \(keys.count) key(s)")
             reply(try xpcEncode(keys), nil)
         } catch {
-            log.error("listSecretKeys: error — \(error.localizedDescription, privacy: .public)")
+            Self.logNSError(error as NSError, prefix: "listSecretKeys: error")
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
         }
     }
@@ -114,7 +114,7 @@ extension GPGServiceImpl {
             log.info("listPublicKeys: found \(keys.count) key(s)")
             reply(try xpcEncode(keys), nil)
         } catch {
-            log.error("listPublicKeys: error — \(error.localizedDescription, privacy: .public)")
+            Self.logNSError(error as NSError, prefix: "listPublicKeys: error")
             reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
         }
     }
@@ -128,10 +128,10 @@ extension GPGServiceImpl {
                 throw GPGXPCError.make(.gpgFailed,
                     message: "gpg delete-keys failed: \(stderr)")
             }
-            log.info("deleteKey: deleted \(fingerprint)")
+            log.info("deleteKey: deleted key")
             reply(nil)
         } catch {
-            log.error("deleteKey: error — \(error.localizedDescription, privacy: .public)")
+            Self.logNSError(error as NSError, prefix: "deleteKey: error")
             reply(error as NSError)
         }
     }
@@ -156,7 +156,7 @@ extension GPGServiceImpl {
 
             let (_, importStderr, importCode) = try gpg(
                 ["--batch", "--import-ownertrust", tmpURL.path])
-            log.info("setTrust import: code=\(importCode) stderr=\(importStderr)")
+            log.info("setTrust import: code=\(importCode)")
             guard importCode == 0 else {
                 throw GPGXPCError.make(.gpgFailed,
                     message: "gpg import-ownertrust failed (code \(importCode)): \(importStderr)")
@@ -167,13 +167,13 @@ extension GPGServiceImpl {
             // old calculated validity until GPG decides to rebuild on its own).
             let (_, checkStderr, checkCode) = try gpg(["--batch", "--check-trustdb"])
             if checkCode != 0 {
-                log.warning("setTrust check-trustdb: code=\(checkCode) stderr=\(checkStderr)")
+                log.warning("setTrust check-trustdb: code=\(checkCode)")
             }
 
-            log.info("setTrust: \(fingerprint) → \(level)")
+            log.info("setTrust: updated key trust to \(level, privacy: .public)")
             reply(nil)
         } catch {
-            log.error("setTrust: error — \(error.localizedDescription, privacy: .public)")
+            Self.logNSError(error as NSError, prefix: "setTrust: error")
             reply(error as NSError)
         }
     }
@@ -185,10 +185,10 @@ extension GPGServiceImpl {
                 throw GPGXPCError.make(.gpgFailed, message: "gpg lsign-key failed: \(stderr)")
             }
             _ = try? gpg(["--batch", "--check-trustdb"])
-            log.info("lsignKey: locally signed \(fingerprint)")
+            log.info("lsignKey: locally signed key")
             reply(nil)
         } catch {
-            log.error("lsignKey: error — \(error.localizedDescription, privacy: .public)")
+            Self.logNSError(error as NSError, prefix: "lsignKey: error")
             reply(error as NSError)
         }
     }

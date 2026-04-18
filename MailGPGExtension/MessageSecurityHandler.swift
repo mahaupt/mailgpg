@@ -27,6 +27,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         let decodedMessage: MEDecodedMessage?
     }
 
+    private static func logNSError(_ error: NSError, prefix: StaticString) {
+        log.error("\(prefix, privacy: .public) domain=\(error.domain, privacy: .public) code=\(error.code)")
+    }
+
 
     // MARK: - Encoding (outgoing)
 
@@ -92,8 +96,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             return
         }
 
-        let rawPreview = String(data: body.prefix(400), encoding: .utf8) ?? "(non-utf8)"
-        log.info("encode: rawData size=\(body.count) bytes, sender=\(message.fromAddress.rawString), preview=\(rawPreview)")
+        log.info("encode: rawData size=\(body.count) bytes")
 
         // UUID-based cache: return a previous encode result for subsequent calls
         // with the same message UUID. This reduces 3 GPG calls to 1.
@@ -119,7 +122,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         let cachedEncode = messageUUID.flatMap { uuidCache[$0]?.encodeResult }
         cacheLock.unlock()
         if let cached = cachedEncode, let uuid = messageUUID {
-            log.info("encode: UUID cache hit for \(uuid) (\(body.count) bytes)")
+            log.info("encode: UUID cache hit (\(body.count) bytes)")
             completionHandler(cached)
             return
         }
@@ -140,7 +143,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
             if !missingEmails.isEmpty {
                 let list = missingEmails.joined(separator: ", ")
-                log.error("encode: encryption requested but missing keys for: \(list)")
+                log.error("encode: encryption requested but \(missingEmails.count) recipient key(s) are missing")
                 completionHandler(MEMessageEncodingResult(
                     encodedMessage: nil,
                     signingError: nil,
@@ -154,7 +157,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
             if !loadingEmails.isEmpty {
                 let list = loadingEmails.joined(separator: ", ")
-                log.warning("encode: key lookup still in progress for: \(list)")
+                log.warning("encode: key lookup still in progress for \(loadingEmails.count) recipient(s)")
                 completionHandler(MEMessageEncodingResult(
                     encodedMessage: nil,
                     signingError: nil,
@@ -187,19 +190,19 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                 var encryptFingerprints = fingerprints
                 if shouldEncrypt, let sk = signerKey {
                     encryptFingerprints.append(sk.fingerprint)
-                    log.info("encode: added sender key \(sk.keyID) to encryption recipients")
+                    log.info("encode: added sender key to encryption recipients")
                 }
 
                 if shouldSign {
                     guard let signerKey else {
-                        log.error("encode: no usable secret key found for sender \(senderEmail)")
+                        log.error("encode: no usable secret key found for sender")
                         completionHandler(MEMessageEncodingResult(
                             encodedMessage: nil,
                             signingError: GPGXPCError.make(.keyNotFound, message: "No secret key found for \(senderEmail)"),
                             encryptionError: nil))
                         return
                     }
-                    log.info("encode: signing with key \(signerKey.keyID) (\(signerKey.email))")
+                    log.info("encode: signing with selected sender key")
 
                     if shouldEncrypt {
                         log.info("encode: sign+encrypt to \(encryptFingerprints.count) recipient(s)")
@@ -225,8 +228,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     log.info("encode: encrypt succeeded")
                 }
 
-                let preview = String(data: encodedData.rawData.prefix(300), encoding: .utf8) ?? "(non-utf8)"
-                log.info("encode: encoded \(encodedData.rawData.count) bytes — first 300: \(preview)")
+                log.info("encode: encoded \(encodedData.rawData.count) bytes")
 
                 let encodeResult = MEMessageEncodingResult(encodedMessage: encodedData, signingError: nil, encryptionError: nil)
 
@@ -249,15 +251,15 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     self.uuidCache[uuid] = UUIDCacheEntry(
                         encodeResult: encodeResult, decodedMessage: decoded)
                     self.cacheLock.unlock()
-                    log.info("encode: cached under UUID \(uuid)")
+                    log.info("encode: cached under UUID")
                 }
 
                 log.info("encode: calling completionHandler with \(encodedData.rawData.count) bytes")
                 completionHandler(encodeResult)
 
             } catch {
-                log.error("encode: failed — \(error.localizedDescription, privacy: .public)")
                 let nsError = error as NSError
+                Self.logNSError(nsError, prefix: "encode: failed")
                 completionHandler(MEMessageEncodingResult(
                     encodedMessage: nil,
                     signingError: shouldSign ? nsError : nil,
@@ -356,7 +358,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         cacheLock.lock()
         if let key = cacheKey, let cached = uuidCache[key]?.decodedMessage {
             cacheLock.unlock()
-            log.debug("decodedMessage: cache hit for \(key) (\(data.count) bytes)")
+            log.debug("decodedMessage: cache hit (\(data.count) bytes)")
             return cached
         }
         cacheLock.unlock()
@@ -411,10 +413,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     }
                     log.debug("decodedMessage: verifying signature (\(signedData.count) data bytes, \(signatureData.count) sig bytes)")
                     let status = try await GPGService.shared.verify(data: signedData, signature: signatureData)
-                    log.debug("decodedMessage: verify result=\(String(describing: status))")
+                    log.debug("decodedMessage: verify completed")
                     result = Self.makeDecodedMessage(data: data, status: status)
                 } catch let error as NSError {
-                    log.error("decodedMessage: verify error — \(error.localizedDescription, privacy: .public)")
+                    Self.logNSError(error, prefix: "decodedMessage: verify error")
                     switch GPGXPCError(nsError: error) {
                     case .gpgFailed:
                         result = Self.makeDecodedMessage(
@@ -431,7 +433,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             Task.detached {
                 do {
                     let (plaintext, status) = try await GPGService.shared.decrypt(data: data)
-                    log.debug("decodedMessage: decrypt succeeded, status=\(String(describing: status))")
+                    log.debug("decodedMessage: decrypt succeeded")
                     // Check for protected subject (RFC 3156 / Memory Hole):
                     // if the outer subject is a placeholder like "..." and the
                     // decrypted message has a real subject, show it via banner.
@@ -450,7 +452,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     }
                     result = Self.makeDecodedMessage(data: plaintext, status: status, wasEncrypted: true, banner: banner)
                 } catch let error as NSError {
-                    log.error("decodedMessage: decrypt error — \(error.localizedDescription, privacy: .public)")
+                    Self.logNSError(error, prefix: "decodedMessage: decrypt error")
                     // Return nil so Mail shows the raw message instead of crashing.
                     // Returning a MEDecodedMessage with the original encrypted data
                     // causes Mail's indexer to loop and trigger a KVO re-entrancy crash.
@@ -470,7 +472,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                 uuidCache[key] = UUIDCacheEntry(encodeResult: nil, decodedMessage: decoded)
             }
             cacheLock.unlock()
-            log.debug("decodedMessage: cached under \(key)")
+            log.debug("decodedMessage: cached result")
         }
 
         return result

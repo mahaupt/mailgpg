@@ -498,7 +498,7 @@ extension GPGServiceImpl {
                     contentTransferEncoding = foldedHeaderValue("content-transfer-encoding", in: innerHeaders)
                     subject = foldedHeaderValue("subject", in: innerHeaders)
                     body = String(plaintextStr[range.upperBound...])
-                    log.info("decrypt: inner MIME entity detected, content-type=\(contentType)")
+        log.info("decrypt: inner MIME entity detected")
                 }
                 break
             }

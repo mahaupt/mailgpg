@@ -23,6 +23,10 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
     private static let defaults = UserDefaults(suiteName: "group.com.mahaupt.mailgpg")
 
+    static func logNSError(_ error: NSError, prefix: StaticString) {
+        log.error("\(prefix, privacy: .public) domain=\(error.domain, privacy: .public) code=\(error.code)")
+    }
+
     /// Returns the current keyserver list from shared UserDefaults.
     /// The extension seeds the defaults on first launch, so this should never be empty.
     func currentKeyservers() -> [String] {
@@ -110,7 +114,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     /// Detects the "unusable secret key" case that occurs when a YubiKey or
     /// OpenPGP smartcard key stub can't be accessed via scdaemon.
     private func signError(code: Int32, stderr: String) -> String {
-        log.error("signError: exit=\(code) stderr=\(stderr)")
+        log.error("signError: exit=\(code)")
         let lower = stderr.lowercased()
         if lower.contains("unusable") || lower.contains("unbrauchbar") {
             if lower.contains("public") || lower.contains("öffentlich") {
@@ -197,7 +201,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
     func sign(data: Data, signerKeyID: String,
               reply: @escaping (Data?, Error?) -> Void) {
-        log.info("sign: keyID=\(signerKeyID) dataSize=\(data.count)")
+        log.info("sign: dataSize=\(data.count)")
         do {
             if gnupgHome == nil { try GPGAgent.ensureRunning() }
             let cardCode = (try? gpg(["--card-status"]))?.exitCode ?? -1
@@ -229,11 +233,11 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                 reply(buildSignedMessage(original: data, signedPart: signedPart, signature: sigData), nil)
             } else {
                 let msg = signError(code: code, stderr: stderr)
-                log.error("sign: gpg failed — \(msg)")
+                log.error("sign: gpg failed with exit=\(code)")
                 throw GPGXPCError.make(.gpgFailed, message: msg)
             }
         } catch {
-            log.error("sign: error — \(error.localizedDescription, privacy: .public)")
+            Self.logNSError(error as NSError, prefix: "sign: error")
             reply(nil, error as NSError)
         }
     }
@@ -275,7 +279,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             var args = ["--sign", "--encrypt", "--armor", "--batch", "--yes",
                         "--trust-model", "always", "--local-user", signerKeyID]
             for fp in recipientFingerprints { args += ["--recipient", fp] }
-            log.info("signAndEncrypt: gpg args=\(args.joined(separator: " "))")
+            log.info("signAndEncrypt: invoking gpg for \(recipientFingerprints.count) recipient(s)")
             let (encData, stderr, code) = try gpg(args, input: innerMIME)
             guard code == 0 else {
                 throw GPGXPCError.make(.gpgFailed, message: signError(code: code, stderr: stderr))
@@ -323,7 +327,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                         ["--decrypt", "--batch", "--yes", "--status-fd", "2"],
                         input: payload)
                     status = parseDecryptStatus(stderr: stderr2)
-                    log.info("decrypt: re-verify after key fetch → \(String(describing: status))")
+                    log.info("decrypt: re-verified after key fetch")
                 }
             }
 

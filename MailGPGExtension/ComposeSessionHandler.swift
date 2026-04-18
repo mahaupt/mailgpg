@@ -24,12 +24,12 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
     // MARK: - Session lifecycle
 
     func mailComposeSessionDidBegin(_ session: MEComposeSession) {
-        log.info("session began: \(session.sessionID)")
+        log.info("compose session began")
         ComposeStateStore.shared.register(session)
     }
 
     func mailComposeSessionDidEnd(_ session: MEComposeSession) {
-        log.info("session ended: \(session.sessionID)")
+        log.info("compose session ended")
         ComposeStateStore.shared.remove(session.sessionID)
         MessageSecurityHandler.shared.uuidCache.removeAll()
     }

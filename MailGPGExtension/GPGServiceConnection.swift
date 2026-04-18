@@ -60,7 +60,8 @@ final class GPGServiceConnection {
         // Any XPC error that occurs mid-call is delivered to the error handler,
         // which we route into our availability tracking.
         let proxy = conn.remoteObjectProxyWithErrorHandler { [weak self] error in
-            print("[GPGServiceConnection] Remote error: \(error)")
+            let nsError = error as NSError
+            print("[GPGServiceConnection] Remote error (domain=\(nsError.domain) code=\(nsError.code))")
             self?.handleInvalidation()
         }
 

@@ -108,6 +108,10 @@ struct GPGAgent {
 
     /// Write `pinentry-program <path>` to `gpg-agent.conf` and restart the agent.
     static func configurePinentry(path: String) throws {
+        guard !path.contains("\n"), !path.contains("\r"), path.hasPrefix("/") else {
+            throw GPGXPCError.make(.encodingFailed, message: "Invalid pinentry path")
+        }
+
         // Read existing config (or start fresh).
         var lines = (try? String(contentsOf: agentConfURL, encoding: .utf8))?
             .components(separatedBy: "\n") ?? []

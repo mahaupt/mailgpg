@@ -364,7 +364,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
 
     func verify(data: Data, signature: Data,
                 reply: @escaping (Data?, Error?) -> Void) {
-        try? GPGAgent.ensureRunning()
+        _ = try? GPGAgent.ensureRunning()
         // Keep only the detached signature on disk; stream the signed data via stdin.
         let tmp     = FileManager.default.temporaryDirectory
         let sigURL  = tmp.appendingPathComponent(UUID().uuidString + ".asc")

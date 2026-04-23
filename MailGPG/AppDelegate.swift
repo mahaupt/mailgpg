@@ -17,8 +17,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Start gpg-agent in the background so it is ready before the first
         // sign / decrypt operation.  Failures are non-fatal — the agent will
         // start on demand when GPG needs it; this just avoids the initial delay.
-        Task.detached(priority: .background) {
-            try? GPGAgent.ensureRunning()
+        DispatchQueue.global(qos: .background).async {
+            _ = try? GPGAgent.ensureRunning()
         }
     }
 }

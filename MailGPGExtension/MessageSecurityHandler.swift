@@ -27,13 +27,43 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         let decodedMessage: MEDecodedMessage?
     }
 
+    private func cachedEncodeResult(for key: String?) -> MEMessageEncodingResult? {
+        guard let key else { return nil }
+        cacheLock.lock()
+        let cached = uuidCache[key]?.encodeResult
+        cacheLock.unlock()
+        return cached
+    }
+
+    private func cachedDecodedMessage(for key: String?) -> MEDecodedMessage? {
+        guard let key else { return nil }
+        cacheLock.lock()
+        let cached = uuidCache[key]?.decodedMessage
+        cacheLock.unlock()
+        return cached
+    }
+
+    private func storeCacheEntry(_ entry: UUIDCacheEntry, for key: String) {
+        cacheLock.lock()
+        uuidCache[key] = entry
+        cacheLock.unlock()
+    }
+
+    private func storeDecodedMessageIfNeeded(_ decoded: MEDecodedMessage, for key: String) {
+        cacheLock.lock()
+        if uuidCache[key] == nil {
+            uuidCache[key] = UUIDCacheEntry(encodeResult: nil, decodedMessage: decoded)
+        }
+        cacheLock.unlock()
+    }
+
     func clearUUIDCache() {
         cacheLock.lock()
         uuidCache.removeAll()
         cacheLock.unlock()
     }
 
-    private static func logNSError(_ error: NSError, prefix: StaticString) {
+    private nonisolated static func logNSError(_ error: NSError, prefix: StaticString) {
         log.error("\(prefix, privacy: .public) domain=\(error.domain, privacy: .public) code=\(error.code)")
     }
 
@@ -124,10 +154,8 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
             completionHandler(MEMessageEncodingResult(encodedMessage: nil, signingError: nil, encryptionError: nil))
             return
         }
-        cacheLock.lock()
-        let cachedEncode = messageUUID.flatMap { uuidCache[$0]?.encodeResult }
-        cacheLock.unlock()
-        if let cached = cachedEncode, let uuid = messageUUID {
+        let cachedEncode = cachedEncodeResult(for: messageUUID)
+        if let cached = cachedEncode {
             log.info("encode: UUID cache hit (\(body.count) bytes)")
             completionHandler(cached)
             return
@@ -253,10 +281,9 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                         : .signed(signers: signers)
                     let decoded = Self.makeDecodedMessage(data: body, status: status,
                                                           wasEncrypted: shouldEncrypt)
-                    self.cacheLock.lock()
-                    self.uuidCache[uuid] = UUIDCacheEntry(
-                        encodeResult: encodeResult, decodedMessage: decoded)
-                    self.cacheLock.unlock()
+                    self.storeCacheEntry(
+                        UUIDCacheEntry(encodeResult: encodeResult, decodedMessage: decoded),
+                        for: uuid)
                     log.info("encode: cached under UUID")
                 }
 
@@ -300,7 +327,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     // MARK: - Decoding (incoming)
 
     /// Extract a header value from raw RFC 2822 message data (case-insensitive).
-    private static func headerValue(_ name: String, in data: Data) -> String? {
+    private nonisolated static func headerValue(_ name: String, in data: Data) -> String? {
         let eoh = data.range(of: Data("\r\n\r\n".utf8))
                ?? data.range(of: Data("\n\n".utf8))
         let headerData = eoh.map { Data(data[..<$0.lowerBound]) } ?? data.prefix(4096)
@@ -316,7 +343,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     }
 
     /// Decode RFC 2047 encoded words (e.g. `=?UTF-8?Q?verschl=C3=BCsselter?=`) in a header value.
-    private static func decodeMIMEWords(_ value: String) -> String {
+    private nonisolated static func decodeMIMEWords(_ value: String) -> String {
         let pattern = #"=\?([^?]+)\?([BbQq])\?([^?]*)\?="#
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return value }
         var result = value
@@ -361,13 +388,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         let messageId   = Self.headerValue("message-id", in: data)
         let cacheKey = messageUUID ?? messageId
 
-        cacheLock.lock()
-        if let key = cacheKey, let cached = uuidCache[key]?.decodedMessage {
-            cacheLock.unlock()
+        if let cached = cachedDecodedMessage(for: cacheKey) {
             log.debug("decodedMessage: cache hit (\(data.count) bytes)")
             return cached
         }
-        cacheLock.unlock()
 
         // Quick pre-check: only process messages that look like PGP content.
         // Returning nil for everything else tells Mail "not my message" and avoids:
@@ -473,11 +497,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         // Cache the decoded result so subsequent calls (Mail's indexer often
         // calls decodedMessage 10+ times for the same message) return instantly.
         if let key = cacheKey, let decoded = result {
-            cacheLock.lock()
-            if uuidCache[key] == nil {
-                uuidCache[key] = UUIDCacheEntry(encodeResult: nil, decodedMessage: decoded)
-            }
-            cacheLock.unlock()
+            storeDecodedMessageIfNeeded(decoded, for: key)
             log.debug("decodedMessage: cached result")
         }
 
@@ -524,7 +544,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     ///
     /// RFC 3156 §5: the first part is the signed content (must be passed to
     /// gpg --verify byte-for-byte), and the second part is the detached signature.
-    private static func extractSignedParts(from data: Data) -> (signedData: Data?, signature: Data?) {
+    private nonisolated static func extractSignedParts(from data: Data) -> (signedData: Data?, signature: Data?) {
         guard let str = String(data: data, encoding: .utf8) else { return (nil, nil) }
 
         // Find the boundary from the Content-Type header.

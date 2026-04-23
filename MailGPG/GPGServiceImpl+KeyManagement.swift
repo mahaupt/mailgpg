@@ -168,7 +168,7 @@ extension GPGServiceImpl {
             // Recompute the trust database so that --list-keys reflects the
             // new ownertrust immediately (without this, 'gpg -k' still shows the
             // old calculated validity until GPG decides to rebuild on its own).
-            let (_, checkStderr, checkCode) = try gpg(["--batch", "--check-trustdb"])
+            let (_, _, checkCode) = try gpg(["--batch", "--check-trustdb"])
             if checkCode != 0 {
                 log.warning("setTrust check-trustdb: code=\(checkCode)")
             }

@@ -360,33 +360,10 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             }
 
             // --status-fd 1: [GNUPG:] lines go to stdout so we can capture them cleanly.
-            let gpgPath = try GPGLocator.locate()
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: gpgPath)
-            process.arguments = ["--verify", "--batch", "--status-fd", "1",
-                                  sigURL.path, "-"]
-            var env = ProcessInfo.processInfo.environment
-            env.removeValue(forKey: "DYLD_INSERT_LIBRARIES")
-            env.removeValue(forKey: "GPG_TTY")
-            if let home = gnupgHome { env["GNUPGHOME"] = home }
-            process.environment = env
-            let inPipe = Pipe()
-            let outPipe = Pipe()
-            let errPipe = Pipe()
-            process.standardInput = inPipe
-            process.standardOutput = outPipe
-            process.standardError  = errPipe
-            try process.run()
-
-            DispatchQueue.global(qos: .userInitiated).async {
-                inPipe.fileHandleForWriting.write(data)
-                inPipe.fileHandleForWriting.closeFile()
-            }
-
-            process.waitUntilExit()
-
-            let stdout = String(data: outPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            let stderr = String(data: errPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            let (stdoutData, stderr, _) = try gpg(
+                ["--verify", "--batch", "--status-fd", "1", sigURL.path, "-"],
+                input: data)
+            let stdout = String(data: stdoutData, encoding: .utf8) ?? ""
             let status = enrichWithTrust(parseVerifyStatus(stdout: stdout, stderr: stderr))
             reply(try xpcEncode(status), nil)
         } catch {

@@ -76,6 +76,7 @@ extension GPGServiceImpl {
         // --recv-keys produces no colon output, so after a successful import
         // do a local --list-keys to get a proper KeyInfo to return.
         if let keyID {
+            let keyID = try validatedKeyIdentifier(keyID, fieldName: "key ID")
             for ks in keyservers {
                 guard (try gpg(["--keyserver", ks, "--recv-keys",
                                 "--keyserver-options", "timeout=10", keyID])).exitCode == 0
@@ -122,6 +123,7 @@ extension GPGServiceImpl {
     func deleteKey(fingerprint: String,
                    reply: @escaping (Error?) -> Void) {
         do {
+            let fingerprint = try validatedKeyIdentifier(fingerprint, fieldName: "fingerprint", allowShort: false)
             let (_, stderr, code) = try gpg(
                 ["--batch", "--yes", "--delete-keys", fingerprint])
             guard code == 0 else {
@@ -144,13 +146,14 @@ extension GPGServiceImpl {
                 message: "Unknown trust level: \(level)"))
             return
         }
-        // --import-ownertrust reads "<fingerprint>:<numeric value>:\n" lines.
-        // Writing to a temp file is more reliable than stdin when GPG runs
-        // non-interactively (some builds ignore stdin with --no-tty).
-        let ownertrustLine = "\(fingerprint):\(trustLevel.gpgOwntrustValue):\n"
-        let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("mailgpg-ownertrust-\(UUID().uuidString).txt")
         do {
+            let fingerprint = try validatedKeyIdentifier(fingerprint, fieldName: "fingerprint", allowShort: false)
+            // --import-ownertrust reads "<fingerprint>:<numeric value>:\n" lines.
+            // Writing to a temp file is more reliable than stdin when GPG runs
+            // non-interactively (some builds ignore stdin with --no-tty).
+            let ownertrustLine = "\(fingerprint):\(trustLevel.gpgOwntrustValue):\n"
+            let tmpURL = URL(fileURLWithPath: NSTemporaryDirectory())
+                .appendingPathComponent("mailgpg-ownertrust-\(UUID().uuidString).txt")
             try ownertrustLine.write(to: tmpURL, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: tmpURL) }
 
@@ -180,6 +183,7 @@ extension GPGServiceImpl {
 
     func lsignKey(fingerprint: String, reply: @escaping (Error?) -> Void) {
         do {
+            let fingerprint = try validatedKeyIdentifier(fingerprint, fieldName: "fingerprint", allowShort: false)
             let (_, stderr, code) = try gpg(["--batch", "--yes", "--lsign-key", fingerprint])
             guard code == 0 else {
                 throw GPGXPCError.make(.gpgFailed, message: "gpg lsign-key failed: \(stderr)")
@@ -211,9 +215,13 @@ extension GPGServiceImpl {
                 throw GPGXPCError.make(.encodingFailed,
                     message: "Could not determine imported key fingerprint")
             }
+            let validatedFingerprint = try validatedKeyIdentifier(
+                fingerprint,
+                fieldName: "imported fingerprint",
+                allowShort: false)
             // Fetch full KeyInfo for the freshly-imported key.
             let (listOut, _, _) = try gpg(
-                ["--list-keys", "--with-colons", "--fixed-list-mode", fingerprint])
+                ["--list-keys", "--with-colons", "--fixed-list-mode", validatedFingerprint])
             let keys = parseColonOutput(String(data: listOut, encoding: .utf8) ?? "",
                                         wantSecretKeys: false)
             guard let key = keys.first else {

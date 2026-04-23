@@ -27,6 +27,19 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
         log.error("\(prefix, privacy: .public) domain=\(error.domain, privacy: .public) code=\(error.code)")
     }
 
+    func validatedKeyIdentifier(_ value: String, fieldName: String, allowShort: Bool = true) throws -> String {
+        let allowedLengths: Set<Int> = allowShort ? [8, 16, 40, 64] : [40, 64]
+        let isHex = value.unicodeScalars.allSatisfy { scalar in
+            (48...57).contains(scalar.value)
+                || (65...70).contains(scalar.value)
+                || (97...102).contains(scalar.value)
+        }
+        guard allowedLengths.contains(value.count), isHex else {
+            throw GPGXPCError.make(.encodingFailed, message: "Invalid \(fieldName)")
+        }
+        return value.uppercased()
+    }
+
     /// Returns the current keyserver list from shared UserDefaults.
     /// The extension seeds the defaults on first launch, so this should never be empty.
     func currentKeyservers() -> [String] {
@@ -203,6 +216,7 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
               reply: @escaping (Data?, Error?) -> Void) {
         log.info("sign: dataSize=\(data.count)")
         do {
+            let signerKeyID = try validatedKeyIdentifier(signerKeyID, fieldName: "signer key ID")
             if gnupgHome == nil { try GPGAgent.ensureRunning() }
             let cardCode = (try? gpg(["--card-status"]))?.exitCode ?? -1
             log.info("sign: card-status exit=\(cardCode)")
@@ -245,6 +259,9 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
     func encrypt(data: Data, recipientFingerprints: [String],
                  reply: @escaping (Data?, Error?) -> Void) {
         do {
+            let recipientFingerprints = try recipientFingerprints.map {
+                try validatedKeyIdentifier($0, fieldName: "recipient fingerprint", allowShort: false)
+            }
             if gnupgHome == nil { try GPGAgent.ensureRunning() }
             let (rawHeaders, body) = splitMessage(data)
             let innerMIME = buildInnerMIMEEntity(rawHeaders: rawHeaders, body: body)
@@ -268,6 +285,10 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
                         recipientFingerprints: [String],
                         reply: @escaping (Data?, Error?) -> Void) {
         do {
+            let signerKeyID = try validatedKeyIdentifier(signerKeyID, fieldName: "signer key ID")
+            let recipientFingerprints = try recipientFingerprints.map {
+                try validatedKeyIdentifier($0, fieldName: "recipient fingerprint", allowShort: false)
+            }
             if gnupgHome == nil { try GPGAgent.ensureRunning() }
             log.info("signAndEncrypt: polling card-status…")
             let cardResult = try? gpg(["--card-status"])

@@ -33,6 +33,20 @@ final class GPGKeyManagementTests: XCTestCase {
         return result
     }
 
+    private func assertEncodingFailed(
+        _ error: Error?,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let error else {
+            XCTFail("Expected encodingFailed error", file: file, line: line)
+            return
+        }
+        let nsError = error as NSError
+        XCTAssertEqual(nsError.domain, GPGXPCErrorDomain, file: file, line: line)
+        XCTAssertEqual(nsError.code, GPGXPCError.encodingFailed.rawValue, file: file, line: line)
+    }
+
     // MARK: - List keys
 
     func testListSecretKeys() throws {
@@ -131,6 +145,13 @@ final class GPGKeyManagementTests: XCTestCase {
         XCTAssertEqual(keys?.count ?? -1, 0, "Key should have been deleted")
     }
 
+    func testDeleteKeyRejectsInvalidFingerprint() {
+        let error = wait { done in
+            svc.deleteKey(fingerprint: "DEADBEEF\nAABBCCDD112233441122334411223344AABBCCDD") { done($0) }
+        }
+        assertEncodingFailed(error)
+    }
+
     // MARK: - Trust
 
     func testSetTrustLevel() throws {
@@ -158,6 +179,14 @@ final class GPGKeyManagementTests: XCTestCase {
         XCTAssertEqual(key.trustLevel, .full, "Trust level should be .full after setTrust")
     }
 
+    func testSetTrustRejectsInvalidFingerprint() {
+        let error = wait { done in
+            svc.setTrust(fingerprint: "DEADBEEF\nAABBCCDD112233441122334411223344AABBCCDD",
+                         level: TrustLevel.full.rawValue) { done($0) }
+        }
+        assertEncodingFailed(error)
+    }
+
     // MARK: - Local sign (lsign)
 
     func testLsignKey() throws {
@@ -180,5 +209,12 @@ final class GPGKeyManagementTests: XCTestCase {
         XCTAssertTrue(
             key.validity == .full || key.validity == .ultimate,
             "Expected validity .full or .ultimate after lsign, got \(key.validity)")
+    }
+
+    func testLsignKeyRejectsInvalidFingerprint() {
+        let error = wait { done in
+            svc.lsignKey(fingerprint: "--batch") { done($0) }
+        }
+        assertEncodingFailed(error)
     }
 }

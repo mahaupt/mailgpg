@@ -194,6 +194,8 @@ extension GPGServiceImpl {
     /// Falls back to `.unknown` for any key that can't be found locally.
     func enrichWithTrust(_ status: SecurityStatus) -> SecurityStatus {
         func trust(forFingerprint fp: String) -> TrustLevel {
+            guard let fp = try? validatedKeyIdentifier(fp, fieldName: "fingerprint", allowShort: false)
+            else { return .unknown }
             guard let (out, _, code) = try? gpg(["--list-keys", "--with-colons",
                                                   "--fixed-list-mode", fp]),
                   code == 0 else { return .unknown }

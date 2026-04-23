@@ -27,6 +27,12 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         let decodedMessage: MEDecodedMessage?
     }
 
+    func clearUUIDCache() {
+        cacheLock.lock()
+        uuidCache.removeAll()
+        cacheLock.unlock()
+    }
+
     private static func logNSError(_ error: NSError, prefix: StaticString) {
         log.error("\(prefix, privacy: .public) domain=\(error.domain, privacy: .public) code=\(error.code)")
     }

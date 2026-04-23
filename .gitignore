@@ -65,5 +65,11 @@ fastlane/test_output
 
 xcdebugger/
 
+# Keep AI local
 CLAUDE.md
 GEMINI.md
+CODEX.md
+Agents.md
+.claude
+.codex
+.gemini

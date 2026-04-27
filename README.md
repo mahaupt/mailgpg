@@ -1,4 +1,5 @@
 # MailGPG
+![MailGPG Preview](https://github.com/mahaupt/mailgpg/blob/main/mailgpg.png?raw=true)
 
 Native macOS Mail extension for OpenPGP — sign, encrypt, and decrypt emails using your local GPG installation, directly in Apple Mail.
 

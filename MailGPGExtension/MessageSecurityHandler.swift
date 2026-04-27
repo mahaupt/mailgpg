@@ -381,6 +381,18 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         return result
     }
 
+    /// Return only the RFC 2822 header block. This stays small for normal mail and
+    /// avoids decoding large message bodies just to decide whether MailGPG applies.
+    private nonisolated static func headerBlock(in data: Data) -> Data.SubSequence {
+        let eohRange = data.range(of: Data("\r\n\r\n".utf8))
+                    ?? data.range(of: Data("\n\n".utf8))
+        return eohRange.map { data[..<$0.lowerBound] } ?? data.prefix(4096)
+    }
+
+    private nonisolated static func containsASCII(_ needle: String, in data: Data) -> Bool {
+        data.range(of: Data(needle.utf8)) != nil
+    }
+
     func decodedMessage(forMessageData data: Data) -> MEDecodedMessage? {
         // Cache lookup: try UUID first (for messages we just encoded), then
         // Message-Id (for incoming messages from the server).
@@ -401,18 +413,17 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         // Scan the entire header block rather than a fixed byte prefix: routing
         // headers added by Gmail, Exchange, etc. (DKIM, ARC, Received, ...) can
         // push Content-Type well past 4 KB.
-        let eohRange = data.range(of: "\r\n\r\n".data(using: .utf8)!)
-                    ?? data.range(of: "\n\n".data(using: .utf8)!)
-        let headerData = eohRange.map { Data(data[..<$0.lowerBound]) } ?? data
-        let preview = String(data: headerData, encoding: .utf8) ?? ""
+        let headerData = Data(Self.headerBlock(in: data))
+        let preview = (String(data: headerData, encoding: .utf8) ?? "").lowercased()
         // For inline PGP (e.g. Mailvelope), the PGP block is in the body, not the headers.
-        // Check the body as well.
-        let bodyData = eohRange.map { Data(data[$0.upperBound...]) } ?? Data()
-        let bodyStr  = String(data: bodyData, encoding: .utf8) ?? ""
+        // Check for ASCII armor markers as bytes so normal large messages do not
+        // pay the cost of converting the whole body to a Swift String.
         let isMIMEEncrypted = preview.contains("multipart/encrypted")
+                           && preview.contains("application/pgp-encrypted")
         let isMIMESigned    = preview.contains("multipart/signed")
-        let isInlinePGP     = bodyStr.contains("-----BEGIN PGP MESSAGE-----")
-        let isInlineSigned  = bodyStr.contains("-----BEGIN PGP SIGNED MESSAGE-----")
+                           && preview.contains("application/pgp-signature")
+        let isInlinePGP     = Self.containsASCII("-----BEGIN PGP MESSAGE-----", in: data)
+        let isInlineSigned  = Self.containsASCII("-----BEGIN PGP SIGNED MESSAGE-----", in: data)
         let isEncrypted = isMIMEEncrypted || isInlinePGP
         let isSigned    = isMIMESigned    || isInlineSigned
 

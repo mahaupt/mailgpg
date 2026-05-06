@@ -25,7 +25,11 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     struct UUIDCacheEntry {
         let encodeResult: MEMessageEncodingResult?
         let decodedMessage: MEDecodedMessage?
+        let isNotMailGPGContent: Bool
     }
+
+    private nonisolated static let inlinePGPMessageMarker = Data("-----BEGIN PGP MESSAGE-----".utf8)
+    private nonisolated static let inlinePGPSignedMarker = Data("-----BEGIN PGP SIGNED MESSAGE-----".utf8)
 
     private func cachedEncodeResult(for key: String?) -> MEMessageEncodingResult? {
         guard let key else { return nil }
@@ -43,6 +47,14 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         return cached
     }
 
+    private func isCachedNotMailGPGContent(for key: String?) -> Bool {
+        guard let key else { return false }
+        cacheLock.lock()
+        let cached = uuidCache[key]?.isNotMailGPGContent ?? false
+        cacheLock.unlock()
+        return cached
+    }
+
     private func storeCacheEntry(_ entry: UUIDCacheEntry, for key: String) {
         cacheLock.lock()
         uuidCache[key] = entry
@@ -52,7 +64,22 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
     private func storeDecodedMessageIfNeeded(_ decoded: MEDecodedMessage, for key: String) {
         cacheLock.lock()
         if uuidCache[key] == nil {
-            uuidCache[key] = UUIDCacheEntry(encodeResult: nil, decodedMessage: decoded)
+            uuidCache[key] = UUIDCacheEntry(
+                encodeResult: nil,
+                decodedMessage: decoded,
+                isNotMailGPGContent: false)
+        }
+        cacheLock.unlock()
+    }
+
+    private func storeNotMailGPGContent(for key: String?) {
+        guard let key else { return }
+        cacheLock.lock()
+        if uuidCache[key] == nil {
+            uuidCache[key] = UUIDCacheEntry(
+                encodeResult: nil,
+                decodedMessage: nil,
+                isNotMailGPGContent: true)
         }
         cacheLock.unlock()
     }
@@ -282,7 +309,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                     let decoded = Self.makeDecodedMessage(data: body, status: status,
                                                           wasEncrypted: shouldEncrypt)
                     self.storeCacheEntry(
-                        UUIDCacheEntry(encodeResult: encodeResult, decodedMessage: decoded),
+                        UUIDCacheEntry(
+                            encodeResult: encodeResult,
+                            decodedMessage: decoded,
+                            isNotMailGPGContent: false),
                         for: uuid)
                     log.info("encode: cached under UUID")
                 }
@@ -389,8 +419,8 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         return eohRange.map { data[..<$0.lowerBound] } ?? data.prefix(4096)
     }
 
-    private nonisolated static func containsASCII(_ needle: String, in data: Data) -> Bool {
-        data.range(of: Data(needle.utf8)) != nil
+    private nonisolated static func containsASCII(_ needle: Data, in data: Data) -> Bool {
+        data.range(of: needle) != nil
     }
 
     func decodedMessage(forMessageData data: Data) -> MEDecodedMessage? {
@@ -403,6 +433,10 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
         if let cached = cachedDecodedMessage(for: cacheKey) {
             log.debug("decodedMessage: cache hit (\(data.count) bytes)")
             return cached
+        }
+        if isCachedNotMailGPGContent(for: cacheKey) {
+            log.debug("decodedMessage: negative cache hit (\(data.count) bytes)")
+            return nil
         }
 
         // Quick pre-check: only process messages that look like PGP content.
@@ -422,8 +456,8 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
                            && preview.contains("application/pgp-encrypted")
         let isMIMESigned    = preview.contains("multipart/signed")
                            && preview.contains("application/pgp-signature")
-        let isInlinePGP     = Self.containsASCII("-----BEGIN PGP MESSAGE-----", in: data)
-        let isInlineSigned  = Self.containsASCII("-----BEGIN PGP SIGNED MESSAGE-----", in: data)
+        let isInlinePGP     = Self.containsASCII(Self.inlinePGPMessageMarker, in: data)
+        let isInlineSigned  = Self.containsASCII(Self.inlinePGPSignedMarker, in: data)
         let isEncrypted = isMIMEEncrypted || isInlinePGP
         let isSigned    = isMIMESigned    || isInlineSigned
 
@@ -431,6 +465,7 @@ class MessageSecurityHandler: NSObject, MEMessageSecurityHandler {
 
         guard isEncrypted || isSigned else {
             log.debug("decodedMessage: not encrypted or signed — returning nil")
+            storeNotMailGPGContent(for: cacheKey)
             return nil
         }
 

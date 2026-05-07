@@ -78,6 +78,8 @@ jobs:
             -archivePath "$RUNNER_TEMP/MailGPG.xcarchive" \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
             DEVELOPMENT_TEAM="${{ secrets.DEVELOPMENT_TEAM }}" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Developer ID Application" \
@@ -121,7 +123,25 @@ jobs:
             -archivePath "$RUNNER_TEMP/MailGPG.xcarchive" \
             -exportPath "$RUNNER_TEMP/export" \
             -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            ARCHS="arm64 x86_64" \
+            ONLY_ACTIVE_ARCH=NO \
             | xcpretty
+
+      - name: Verify universal binaries
+        run: |
+          APP_BIN="$RUNNER_TEMP/export/MailGPG.app/Contents/MacOS/MailGPG"
+          EXT_BIN="$RUNNER_TEMP/export/MailGPG.app/Contents/PlugIns/MailGPGExtension.appex/Contents/MacOS/MailGPGExtension"
+
+          file "$APP_BIN"
+          file "$EXT_BIN"
+          APP_ARCHS="$(lipo -archs "$APP_BIN")"
+          EXT_ARCHS="$(lipo -archs "$EXT_BIN")"
+
+          echo "App architectures: $APP_ARCHS"
+          echo "Extension architectures: $EXT_ARCHS"
+
+          [[ "$APP_ARCHS" == *arm64* && "$APP_ARCHS" == *x86_64* ]]
+          [[ "$EXT_ARCHS" == *arm64* && "$EXT_ARCHS" == *x86_64* ]]
 
       # ── DMG ──────────────────────────────────────────────────────────────────
       - name: Create DMG

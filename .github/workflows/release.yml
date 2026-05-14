@@ -197,6 +197,12 @@ jobs:
             brew install --cask mahaupt/mailgpg/mailgpg
             ```
 
+            Alternative install without Homebrew `gnupg` / `pinentry-mac` dependencies:
+
+            ```bash
+            brew install --cask mahaupt/mailgpg/mailgpg-nodeps
+            ```
+
             **SHA256:** `${{ env.SHA256 }}`
           files: ${{ env.DMG_PATH }}
 
@@ -212,11 +218,15 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          # Copy cask template from this repo (single source of truth) and stamp version/sha256
+          # Copy cask templates from this repo (single source of truth) and stamp version/sha256
           cp "$GITHUB_WORKSPACE/.github/homebrew/mailgpg.rb" Casks/mailgpg.rb
+          cp "$GITHUB_WORKSPACE/.github/homebrew/mailgpg-nodeps.rb" Casks/mailgpg-nodeps.rb
+
           sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/mailgpg.rb
           sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Casks/mailgpg.rb
+          sed -i '' "s/version \".*\"/version \"$VERSION\"/" Casks/mailgpg-nodeps.rb
+          sed -i '' "s/sha256 \".*\"/sha256 \"$SHA256\"/" Casks/mailgpg-nodeps.rb
 
-          git add Casks/mailgpg.rb
+          git add Casks/mailgpg.rb Casks/mailgpg-nodeps.rb
           git commit -m "mailgpg $VERSION"
           git push origin main

@@ -17,7 +17,11 @@ cask "mailgpg-nodeps" do
   app "MailGPG.app"
 
   postflight do
-    plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
+    plist_dir = "#{Dir.home}/Library/LaunchAgents"
+    plist_path = "#{plist_dir}/com.mahaupt.mailgpg.plist"
+
+    FileUtils.mkdir_p(plist_dir)
+
     executable = "#{appdir}/MailGPG.app/Contents/MacOS/MailGPG"
     plist_content = <<~XML
       <?xml version="1.0" encoding="UTF-8"?>
@@ -51,10 +55,12 @@ cask "mailgpg-nodeps" do
 
   uninstall_postflight do
     plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
-    system_command "/bin/launchctl",
-      args: ["bootout", "gui/#{Process.uid}", plist_path],
-      print_stderr: false
-    FileUtils.rm_f(plist_path)
+    if File.exist?(plist_path)
+      system_command "/bin/launchctl",
+        args: ["bootout", "gui/#{Process.uid}", plist_path],
+        print_stderr: false
+      FileUtils.rm_f(plist_path)
+    end
   end
 
   caveats <<~EOS

@@ -12,7 +12,7 @@ cask "mailgpg" do
   homepage "https://github.com/mahaupt/mailgpg"
 
   # Minimum macOS version
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   # GPG binary and GUI-compatible pinentry are required for all operations
   depends_on formula: "gnupg"

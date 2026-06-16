@@ -12,7 +12,7 @@ cask "mailgpg-nodeps" do
   homepage "https://github.com/mahaupt/mailgpg"
 
   # Minimum macOS version
-  depends_on macos: ">= :sonoma"
+  depends_on macos: :sonoma
 
   app "MailGPG.app"
 

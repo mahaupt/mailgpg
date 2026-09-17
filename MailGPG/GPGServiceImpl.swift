@@ -328,12 +328,32 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             // decryption itself succeeded. Treat DECRYPTION_OKAY as the
             // authoritative success indicator and only hard-fail if we got
             // neither that status nor a zero exit.
+            //
+            // DECRYPTION_FAILED is NOT the inverse of DECRYPTION_OKAY: on an MDC /
+            // integrity failure gpg emits both and still writes plaintext to stdout.
+            // parseDecryptStatus treats that as a failure; checking OKAY alone here
+            // would return tampered plaintext as a good decrypt.
             let decryptionOkay = stderr.contains("[GNUPG:] DECRYPTION_OKAY")
-            guard code == 0 || decryptionOkay else {
-                throw GPGXPCError.make(.gpgFailed,
-                    message: "gpg decrypt failed (exit \(code)): \(stderr)")
-            }
+                              && !stderr.contains("[GNUPG:] DECRYPTION_FAILED")
             var status = parseDecryptStatus(stderr: stderr)
+            guard code == 0 || decryptionOkay else {
+                // Report *why* rather than throwing. A thrown error reaches the
+                // extension as an opaque NSError, which it can only turn into "not my
+                // message" — the exact reason nobody could tell a missing key from a
+                // malformed MIME part from a gpg crash. A .decryptionFailed status is
+                // something the UI can actually render.
+                let details: DecryptionDetails = {
+                    if case .decryptionFailed(_, let d) = status { return d }
+                    if case .encrypted(_, let d) = status { return d }
+                    return DecryptionDetails()
+                }()
+                log.error("decrypt: failed (exit \(code)) encTo=\(details.encryptedToKeyIDs.count) missing=\(details.missingSecretKeyIDs.count)")
+                let failed = SecurityStatus.decryptionFailed(
+                    reason: Self.decryptionFailureReason(details: details, gpgStderr: stderr),
+                    details: details)
+                reply(Data(), try xpcEncode(failed), nil)
+                return
+            }
 
             // If the embedded signature couldn't be verified due to a missing
             // public key, try to fetch the sender's key and re-run the decrypt
@@ -355,6 +375,14 @@ final class GPGServiceImpl: NSObject, GPGXPCProtocol {
             // MEDecodedMessage requires a complete RFC 2822 message (headers + body).
             // GPG only returns the decrypted payload bytes; we must reconstruct
             // the full message from the outer envelope headers.
+            if case .decryptionFailed = status {
+                // MDC/integrity failure: gpg said OKAY *and* FAILED and wrote plaintext
+                // anyway. Never hand that plaintext back — it is unauthenticated.
+                log.error("decrypt: integrity check failed — withholding plaintext")
+                reply(Data(), try xpcEncode(status), nil)
+                return
+            }
+
             let reconstructed = reconstructDecryptedMessage(original: data, plaintext: plaintext)
             reply(reconstructed, try xpcEncode(enrichWithTrust(status)), nil)
         } catch {

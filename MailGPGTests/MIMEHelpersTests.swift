@@ -251,6 +251,81 @@ final class MIMEHelpersTests: XCTestCase {
         XCTAssert(str.contains("-----BEGIN PGP MESSAGE-----"), "str=\(str)")
     }
 
+    func testExtractPGPPayload_base64EncodedCiphertextPart() {
+        // Exchange/O365 and several list managers re-encode the octet-stream part as
+        // base64. Handing gpg raw base64 produces "no valid OpenPGP data found" →
+        // exit 2 → a completely silent decryption failure.
+        let ciphertext = "-----BEGIN PGP MESSAGE-----\nhEwDAAAAAAAAAAA\n-----END PGP MESSAGE-----"
+        let b64 = Data(ciphertext.utf8).base64EncodedString()
+        let msg = """
+            From: alice@example.com
+            Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="BOUND"
+
+            --BOUND
+            Content-Type: application/pgp-encrypted
+
+            Version: 1
+
+            --BOUND
+            Content-Type: application/octet-stream; name="encrypted.asc"
+            Content-Transfer-Encoding: base64
+
+            \(b64)
+            --BOUND--
+            """
+        let result = svc.extractPGPPayload(from: msg.data(using: .utf8)!)
+        let str = String(data: result, encoding: .utf8) ?? ""
+        XCTAssertEqual(str, ciphertext, "base64 CTE was not decoded: \(str)")
+    }
+
+    func testExtractPGPPayload_quotedPrintableCiphertextPart() {
+        let ciphertext = "-----BEGIN PGP MESSAGE-----\nhEwD+AAA\n-----END PGP MESSAGE-----"
+        let qp = ciphertext.replacingOccurrences(of: "+", with: "=2B")
+        let msg = """
+            Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="BOUNDARY1"
+
+            --BOUNDARY1
+            Content-Type: application/pgp-encrypted
+
+            Version: 1
+
+            --BOUNDARY1
+            Content-Type: application/octet-stream
+            Content-Transfer-Encoding: quoted-printable
+
+            \(qp)
+            --BOUNDARY1--
+            """
+        let result = svc.extractPGPPayload(from: msg.data(using: .utf8)!)
+        XCTAssertEqual(String(data: result, encoding: .utf8), ciphertext)
+    }
+
+    func testExtractPGPPayload_selectsPartByContentTypeNotPosition() {
+        // An extra part ahead of the ciphertext must not shift the selection: the
+        // positional parts[2] would pick the wrong one.
+        let ciphertext = "-----BEGIN PGP MESSAGE-----\nhEwD\n-----END PGP MESSAGE-----"
+        let msg = """
+            Content-Type: multipart/encrypted; protocol="application/pgp-encrypted"; boundary="BOUNDARY1"
+
+            --BOUNDARY1
+            Content-Type: application/pgp-encrypted
+
+            Version: 1
+
+            --BOUNDARY1
+            Content-Type: text/plain
+
+            This part should be skipped.
+            --BOUNDARY1
+            Content-Type: application/octet-stream
+
+            \(ciphertext)
+            --BOUNDARY1--
+            """
+        let result = svc.extractPGPPayload(from: msg.data(using: .utf8)!)
+        XCTAssertEqual(String(data: result, encoding: .utf8), ciphertext)
+    }
+
     func testExtractPGPPayload_inlinePGP() {
         let msg = "From: alice@example.com\n\n-----BEGIN PGP MESSAGE-----\nhEwD\n-----END PGP MESSAGE-----\n"
         let result = svc.extractPGPPayload(from: msg.data(using: .utf8)!)

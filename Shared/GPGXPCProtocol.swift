@@ -93,6 +93,20 @@ import Foundation
         reply: @escaping (_ keyInfoJSON: Data?, Error?) -> Void
     )
 
+    /// Look up ALL usable keys for `email`, not just the best one.
+    ///
+    /// A correspondent who publishes both an RSA and an ECC key for one address must
+    /// be encrypted to both: you cannot know which one they can actually decrypt with
+    /// (the other may be on a YubiKey they left at home), and each extra recipient
+    /// costs one PKESK packet.
+    ///
+    /// Returns a JSON-encoded `[KeyInfo]`, or `nil` data (+ no error) when no key
+    /// exists anywhere. `lookupKey` stays in place for version skew.
+    func lookupKeys(
+        email: String,
+        reply: @escaping (_ keyListJSON: Data?, Error?) -> Void
+    )
+
     /// List all secret keys available for signing.
     /// Returns a JSON-encoded `[KeyInfo]`.
     func listSecretKeys(

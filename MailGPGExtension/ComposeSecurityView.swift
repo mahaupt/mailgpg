@@ -42,9 +42,14 @@ final class ComposeStateStore {
 final class ComposeSessionState: ObservableObject {
     /// Per-recipient key availability. Keyed by email address (lowercased).
     @Published var recipientKeyStatus: [String: RecipientKeyStatus] = [:]
-    /// The `KeyInfo` for each recipient that has a key. Keyed by email address (lowercased).
+    /// EVERY usable `KeyInfo` for each recipient, keyed by email address (lowercased).
     /// Used by `MessageSecurityHandler` to get fingerprints for encryption.
-    @Published var recipientKeys: [String: KeyInfo] = [:]
+    ///
+    /// A list, not one key per address: a correspondent who publishes both an RSA and
+    /// an ECC key must be encrypted to both, because we cannot know which one they can
+    /// actually decrypt with — the other may be on a smartcard they don't have on them.
+    /// Each extra recipient costs one PKESK packet.
+    @Published var recipientKeys: [String: [KeyInfo]] = [:]
 
     /// Encryption is only possible when every recipient has a known public key.
     var canEncrypt: Bool {

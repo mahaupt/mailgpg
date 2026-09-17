@@ -415,14 +415,36 @@ extension GPGServiceImpl {
             let parts = str.components(separatedBy: delim)
             // parts: [preamble, version-part, encrypted-part, epilogue]
             if parts.count >= 3 {
-                let encPart = parts[2]
-                for sep in ["\r\n\r\n", "\n\n"] {
-                    if let bodyStart = encPart.range(of: sep) {
-                        let pgp = String(encPart[bodyStart.upperBound...])
-                            .trimmingCharacters(in: .whitespacesAndNewlines)
-                        return pgp.data(using: .utf8) ?? data
-                    }
+                var fallback: Data? = nil
+                for idx in 1..<(parts.count - 1) {
+                    var piece = parts[idx]
+                    // Strip the line break that follows the boundary delimiter.
+                    while piece.first == "\r" || piece.first == "\n" { piece.removeFirst() }
+                    let (partHeaders, partBodyData) = splitMessage(piece.data(using: .utf8) ?? Data())
+                    let partCT = (foldedHeaderValue("content-type", in: partHeaders) ?? "").lowercased()
+                    // RFC 3156 §4: the first part is application/pgp-encrypted
+                    // ("Version: 1"), the second is the application/octet-stream
+                    // ciphertext. Select by Content-Type rather than by position —
+                    // the positional parts[2] breaks on any producer that reorders or
+                    // inserts a part.
+                    guard !partCT.contains("application/pgp-encrypted") else { continue }
+
+                    // The ciphertext part carries a Content-Transfer-Encoding like any
+                    // other MIME part, and Exchange/O365 and several list managers
+                    // re-encode it as base64. Handing gpg raw base64 gets "no valid
+                    // OpenPGP data found" → exit 2 → a silent failure.
+                    let cte = foldedHeaderValue("content-transfer-encoding", in: partHeaders)
+                    let rawBody = String(data: partBodyData, encoding: .utf8) ?? ""
+                    let pgp = decodedTransferBody(rawBody, encoding: cte)
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !pgp.isEmpty, let pgpData = pgp.data(using: .utf8) else { continue }
+
+                    if partCT.contains("application/octet-stream") { return pgpData }
+                    fallback = fallback ?? pgpData
                 }
+                // No part declared application/octet-stream — use the first non-version
+                // part anyway rather than falling through to the inline-PGP scan.
+                if let fallback { return fallback }
             }
         }
 

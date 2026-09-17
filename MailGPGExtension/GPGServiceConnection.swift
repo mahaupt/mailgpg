@@ -48,7 +48,15 @@ final class GPGServiceConnection {
 
     /// Returns a proxy object the caller can cast to `GPGXPCProtocol` and call methods on.
     /// Throws `GPGXPCError.hostAppNotRunning` if no connection is available.
-    func proxy() throws -> GPGXPCProtocol {
+    ///
+    /// `onError` is invoked when a call made on this proxy fails at the XPC layer
+    /// (connection interrupted, host app relaunched, unimplemented selector, …).
+    /// NSXPC delivers such failures to the error handler INSTEAD of the method's
+    /// reply block, so the caller must fail whatever is awaiting the reply from
+    /// here — otherwise the await never resumes. That was the bug behind "every
+    /// mail spins forever": one dropped reply left `decodedMessage` blocked on its
+    /// semaphore, and Mail queues all decode requests behind it.
+    func proxy(onError: @escaping (Error) -> Void) throws -> GPGXPCProtocol {
         if connection == nil { connect() }
 
         guard let conn = connection else {
@@ -58,11 +66,12 @@ final class GPGServiceConnection {
 
         // `remoteObjectProxyWithErrorHandler` returns a proxy object.
         // Any XPC error that occurs mid-call is delivered to the error handler,
-        // which we route into our availability tracking.
+        // which we route into availability tracking AND back to the caller.
         let proxy = conn.remoteObjectProxyWithErrorHandler { [weak self] error in
             let nsError = error as NSError
             print("[GPGServiceConnection] Remote error (domain=\(nsError.domain) code=\(nsError.code))")
             self?.handleInvalidation()
+            onError(error)
         }
 
         // Force-cast is safe here: we configured the interface with GPGXPCProtocol,

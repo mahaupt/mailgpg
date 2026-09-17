@@ -27,7 +27,17 @@ struct SecurityDetailView: View {
 
             // Content rows
             switch status {
-            case .encrypted(let signers), .signed(let signers):
+            case .encrypted(let signers, let details):
+                if signers.isEmpty {
+                    LabeledRow(label: "Signers", value: "None")
+                } else {
+                    ForEach(signers, id: \.fingerprint) { signer in
+                        SignerRow(signer: signer)
+                    }
+                }
+                DecryptionDetailRows(details: details)
+
+            case .signed(let signers):
                 if signers.isEmpty {
                     LabeledRow(label: "Signers", value: "None")
                 } else {
@@ -36,8 +46,12 @@ struct SecurityDetailView: View {
                     }
                 }
 
-            case .signatureInvalid(let reason), .decryptionFailed(let reason):
+            case .signatureInvalid(let reason):
                 LabeledRow(label: "Reason", value: reason)
+
+            case .decryptionFailed(let reason, let details):
+                LabeledRow(label: "Reason", value: reason)
+                DecryptionDetailRows(details: details)
 
             case .keyNotFound(let keyID):
                 LabeledRow(label: "Key ID", value: keyID)
@@ -81,7 +95,7 @@ struct SecurityDetailView: View {
 
     private var title: String {
         switch status {
-        case .encrypted(let signers): return signers.isEmpty ? "Encrypted" : "Encrypted & Signed"
+        case .encrypted(let signers, _): return signers.isEmpty ? "Encrypted" : "Encrypted & Signed"
         case .signed:            return "Signed"
         case .signatureInvalid:  return "Invalid Signature"
         case .decryptionFailed:  return "Decryption Failed"
@@ -92,7 +106,7 @@ struct SecurityDetailView: View {
 
     private var subtitle: String {
         switch status {
-        case .encrypted(let signers): return signers.isEmpty ? "This message was encrypted with OpenPGP." : "This message was encrypted and signed with OpenPGP."
+        case .encrypted(let signers, _): return signers.isEmpty ? "This message was encrypted with OpenPGP." : "This message was encrypted and signed with OpenPGP."
         case .signed:            return "The message integrity has been verified."
         case .signatureInvalid:  return "The signature does not match the message content."
         case .decryptionFailed:  return "You may not have the correct private key."
@@ -133,6 +147,33 @@ private struct SignerRow: View {
     }
 }
 
+/// The key IDs gpg reported for an encrypted message: which keys it was encrypted
+/// to, which of ours opened it, and which secret keys were missing.
+///
+/// This is the answer to "why won't this one decrypt": with two keys per address a
+/// message encrypted to only one of them is otherwise indistinguishable from a
+/// broken MIME part.
+private struct DecryptionDetailRows: View {
+    let details: DecryptionDetails
+
+    var body: some View {
+        if !details.isEmpty {
+            Divider()
+            if !details.encryptedToKeyIDs.isEmpty {
+                LabeledRow(label: "Encrypted to",
+                           value: details.encryptedToKeyIDs.joined(separator: ", "))
+            }
+            if let fpr = details.decryptionKeyFingerprint {
+                LabeledRow(label: "Opened with", value: fpr)
+            }
+            if !details.missingSecretKeyIDs.isEmpty {
+                LabeledRow(label: "Secret key missing",
+                           value: details.missingSecretKeyIDs.joined(separator: ", "))
+            }
+        }
+    }
+}
+
 /// A simple two-column label/value row.
 private struct LabeledRow: View {
     let label: String
@@ -168,6 +209,13 @@ private struct LabeledRow: View {
 
 #Preview("Key not found") {
     SecurityDetailView(status: .keyNotFound(keyID: "0xDEADBEEF"))
+}
+
+#Preview("Decryption failed — missing key") {
+    SecurityDetailView(status: .decryptionFailed(
+        reason: "This message was encrypted to a key you don't have (secret key missing for DEF67890).",
+        details: DecryptionDetails(encryptedToKeyIDs: ["ABC12345", "DEF67890"],
+                                   missingSecretKeyIDs: ["DEF67890"])))
 }
 
 #Preview("Signature invalid") {

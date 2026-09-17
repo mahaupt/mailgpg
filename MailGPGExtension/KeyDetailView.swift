@@ -35,7 +35,12 @@ struct KeyDetailView: View {
 
             Section("Identity") {
                 LabeledContent("Name", value: key.name.isEmpty ? "—" : key.name)
-                LabeledContent("Email", value: key.email.isEmpty ? "—" : key.email)
+                // A key can carry several addresses; any of them is a valid match
+                // for a To: header, so show them all.
+                LabeledContent(key.normalizedEmails.count > 1 ? "Addresses" : "Email",
+                               value: key.normalizedEmails.isEmpty
+                                      ? (key.email.isEmpty ? "—" : key.email)
+                                      : key.normalizedEmails.joined(separator: "\n"))
                 LabeledContent("Key ID", value: key.keyID)
                 LabeledContent("Fingerprint") {
                     Text(formattedFingerprint(key.fingerprint))

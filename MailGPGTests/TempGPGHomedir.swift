@@ -21,9 +21,15 @@ final class TempGPGHomedir {
 
     /// Absolute path to the isolated homedir.
     let path: String
-    /// Full 40-character fingerprint of the generated test key.
+    /// Full 40-character fingerprint of the primary (RSA) test key.
     private(set) var fingerprint: String = ""
-    /// Email address used for the test key.
+    /// Full 40-character fingerprint of the SECOND key on the same address.
+    ///
+    /// Two currently-valid keys for one identity (typically an RSA and an ECC key) is
+    /// what makes auto-matching by address ambiguous, so the tests need a keyring
+    /// that actually exhibits it.
+    private(set) var secondFingerprint: String = ""
+    /// Email address used for both test keys.
     let email = "mailgpg-test@example.com"
 
     init() throws {
@@ -46,6 +52,7 @@ final class TempGPGHomedir {
             atomically: true, encoding: .utf8)
 
         fingerprint = try generateTestKey()
+        secondFingerprint = try generateSecondTestKey()
     }
 
     deinit {
@@ -79,6 +86,61 @@ final class TempGPGHomedir {
             ])
         }
         return try extractFingerprint(for: email)
+    }
+
+    /// A second, ECC key on the SAME address as the first.
+    private func generateSecondTestKey() throws -> String {
+        let batch = """
+            %echo Generating MailGPG integration-test key 2 (ECC)
+            Key-Type: EDDSA
+            Key-Curve: ed25519
+            Subkey-Type: ECDH
+            Subkey-Curve: cv25519
+            Name-Real: MailGPG Test ECC
+            Name-Email: \(email)
+            Expire-Date: 0
+            %no-protection
+            %commit
+            """
+        let batchURL = URL(fileURLWithPath: path).appendingPathComponent("keygen2.batch")
+        try batch.write(to: batchURL, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: batchURL) }
+
+        let (_, stderr, code) = try run(["--batch", "--gen-key", batchURL.path])
+        guard code == 0 else {
+            throw NSError(domain: "TempGPGHomedir", code: Int(code), userInfo: [
+                NSLocalizedDescriptionKey: "Second key generation failed (exit \(code)): \(stderr)"
+            ])
+        }
+        // Both keys share an address, so select by fingerprint difference rather than
+        // by email — --list-keys returns them in keyring order, not creation order.
+        // Only PRIMARY key fingerprints count: gpg emits an `fpr` record for every
+        // subkey as well, and picking one of those yields a fingerprint that has no
+        // secret-key entry of its own.
+        let (out, _, _) = try run(["--list-keys", "--with-colons", "--fixed-list-mode", email])
+        let text = String(data: out, encoding: .utf8) ?? ""
+        var primaryFingerprints: [String] = []
+        var expectingPrimaryFpr = false
+        for line in text.split(separator: "\n") {
+            let f = line.split(separator: ":", omittingEmptySubsequences: false)
+            switch f.first {
+            case "pub":
+                expectingPrimaryFpr = true
+            case "fpr" where expectingPrimaryFpr:
+                if f.count >= 10, f[9].count == 40 { primaryFingerprints.append(String(f[9])) }
+                expectingPrimaryFpr = false
+            case "sub":
+                expectingPrimaryFpr = false
+            default:
+                break
+            }
+        }
+        guard let second = primaryFingerprints.first(where: { $0 != fingerprint }) else {
+            throw NSError(domain: "TempGPGHomedir", code: -1, userInfo: [
+                NSLocalizedDescriptionKey: "Second key fingerprint not found"
+            ])
+        }
+        return second
     }
 
     private func extractFingerprint(for email: String) throws -> String {

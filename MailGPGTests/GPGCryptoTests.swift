@@ -66,7 +66,7 @@ final class GPGCryptoTests: XCTestCase {
         let status = try XCTUnwrap(
             statusRaw.flatMap { try? xpcDecode(SecurityStatus.self, from: $0) },
             "Could not decode SecurityStatus")
-        guard case .encrypted(let signers) = status else {
+        guard case .encrypted(let signers, _) = status else {
             XCTFail("Expected .encrypted, got \(status)"); return
         }
         XCTAssertTrue(signers.isEmpty, "Encrypt-only message should have no signers")
@@ -130,7 +130,7 @@ final class GPGCryptoTests: XCTestCase {
         let status = try XCTUnwrap(
             statusRaw.flatMap { try? xpcDecode(SecurityStatus.self, from: $0) },
             "Could not decode SecurityStatus")
-        guard case .encrypted(let signers) = status else {
+        guard case .encrypted(let signers, _) = status else {
             XCTFail("Expected .encrypted, got \(status)"); return
         }
         XCTAssertTrue(signers.isEmpty, "Encrypt-only message should have no signers")
@@ -309,7 +309,7 @@ final class GPGCryptoTests: XCTestCase {
 
         let status = try XCTUnwrap(
             statusRaw.flatMap { try? xpcDecode(SecurityStatus.self, from: $0) })
-        guard case .encrypted(let signers) = status else {
+        guard case .encrypted(let signers, _) = status else {
             XCTFail("Expected .encrypted(signers:), got \(status)"); return
         }
         XCTAssertEqual(signers.count, 1, "Expected exactly one signer")
@@ -317,5 +317,101 @@ final class GPGCryptoTests: XCTestCase {
         // Verify signer identity via email; fingerprint non-empty confirms it was parsed.
         XCTAssertEqual(signers[0].email, homedir.email)
         XCTAssertFalse(signers[0].fingerprint.isEmpty)
+    }
+
+    // MARK: - Two keys on one address
+
+    /// Convenience: run `svc.decrypt` synchronously and return the parsed status.
+    private func decryptStatus(of data: Data) throws -> (plaintext: Data?, status: SecurityStatus) {
+        var plain: Data?
+        var raw: Data?
+        let sem = DispatchSemaphore(value: 0)
+        svc.decrypt(data: data) { p, s, _ in plain = p; raw = s; sem.signal() }
+        sem.wait()
+        let status = try XCTUnwrap(raw.flatMap { try? xpcDecode(SecurityStatus.self, from: $0) })
+        return (plain, status)
+    }
+
+    private func encrypt(to fingerprints: [String]) throws -> Data {
+        var out: Data?
+        let sem = DispatchSemaphore(value: 0)
+        svc.encrypt(data: Self.testMessage, recipientFingerprints: fingerprints) { d, e in
+            XCTAssertNil(e, "Encrypt error: \(String(describing: e))")
+            out = d
+            sem.signal()
+        }
+        sem.wait()
+        return try XCTUnwrap(out, "No encrypted data returned")
+    }
+
+    /// The reporting user's keyring shape: two currently-valid secret keys on one
+    /// address. `listSecretKeys` must report both, and `selectSigningKey` must be
+    /// able to tell them apart.
+    func testTwoSecretKeysForOneAddress() throws {
+        var keysRaw: Data?
+        let sem = DispatchSemaphore(value: 0)
+        svc.listSecretKeys { data, error in
+            XCTAssertNil(error)
+            keysRaw = data
+            sem.signal()
+        }
+        sem.wait()
+        let keys = try xpcDecode([KeyInfo].self, from: try XCTUnwrap(keysRaw))
+        let mine = keys.filter { $0.normalizedEmails.contains(homedir.email) }
+        XCTAssertEqual(mine.count, 2, "Expected both the RSA and the ECC key")
+
+        // Auto-matching alone is ambiguous — the pin has to decide.
+        let pinned = selectSigningKey(senderAddress: homedir.email, from: keys,
+                                      overrides: [homedir.email: homedir.secondFingerprint])
+        XCTAssertEqual(pinned?.fingerprint, homedir.secondFingerprint)
+    }
+
+    /// Encrypting to only ONE of the two keys must still decrypt: nothing restricts
+    /// the decrypt path to a particular secret key.
+    func testDecryptWorksForEitherKeyOfTheSameAddress() throws {
+        for fingerprint in [homedir.fingerprint, homedir.secondFingerprint] {
+            let encrypted = try encrypt(to: [fingerprint])
+            let (plain, status) = try decryptStatus(of: encrypted)
+            let plainStr = String(data: try XCTUnwrap(plain), encoding: .utf8) ?? ""
+            XCTAssertTrue(plainStr.contains("Hello, MailGPG!"),
+                          "Could not decrypt a message encrypted to \(fingerprint)")
+            guard case .encrypted(_, let details) = status else {
+                XCTFail("Expected .encrypted, got \(status)"); return
+            }
+            XCTAssertEqual(details.encryptedToKeyIDs.count, 1,
+                           "ENC_TO should name exactly the one key it was encrypted to")
+        }
+    }
+
+    func testEncryptToBothKeysProducesTwoPKESKPackets() throws {
+        let encrypted = try encrypt(to: [homedir.fingerprint, homedir.secondFingerprint])
+        let (_, status) = try decryptStatus(of: encrypted)
+        guard case .encrypted(_, let details) = status else {
+            XCTFail("Expected .encrypted, got \(status)"); return
+        }
+        XCTAssertEqual(details.encryptedToKeyIDs.count, 2,
+                       "Expected one PKESK packet per recipient key")
+        XCTAssertNotNil(details.decryptionKeyFingerprint,
+                        "DECRYPTION_KEY should name the key that opened it")
+    }
+
+    /// A message encrypted to a key that is not in the keyring must come back as
+    /// `.decryptionFailed` naming the key ID — not as an opaque error, and above all
+    /// not as silence.
+    func testDecryptWithoutSecretKeyReportsNoSecKey() throws {
+        // Encrypt to our key, then delete the secret key so nothing can open it.
+        let encrypted = try encrypt(to: [homedir.fingerprint])
+        let (_, _, delCode) = try homedir.run(
+            ["--batch", "--yes", "--delete-secret-keys", homedir.fingerprint])
+        XCTAssertEqual(delCode, 0, "Could not delete the secret key")
+
+        let (_, status) = try decryptStatus(of: encrypted)
+        guard case .decryptionFailed(let reason, let details) = status else {
+            XCTFail("Expected .decryptionFailed, got \(status)"); return
+        }
+        XCTAssertFalse(details.missingSecretKeyIDs.isEmpty,
+                       "NO_SECKEY should have been captured")
+        XCTAssertTrue(reason.lowercased().contains("key"),
+                      "The reason should mention the missing key: \(reason)")
     }
 }

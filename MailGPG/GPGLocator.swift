@@ -12,10 +12,19 @@ enum GPGLocatorError: Error {
 
 struct GPGLocator {
     /// Alle bekannten Installationspfade, Reihenfolge ist Priorität
+    ///
+    /// GPG Suite kommt ZUERST: wenn es installiert ist, verwalten seine
+    /// launchd-Agents den gpg-agent systemweit (org.gpgtools.macgpg2.fix startet
+    /// SEINEN Agent beim Login, shutdown-gpg-agent beendet ihn bei Sleep/Lock).
+    /// Jeder andere gpg-Client redet am Ende sowieso mit diesem Agent — ein
+    /// neuerer Homebrew-Client an einem älteren MacGPG2-Agent ist genau der
+    /// Versions-Skew, der sporadische Passphrase-/Entschlüsselungsfehler erzeugt.
+    /// Mit GPG Suites eigenem gpg (und via toolPath dessen gpgconf) bleiben
+    /// Client, Agent und die GPG-Keychain-App ein konsistenter Stack.
     static let candidatePaths = [
+        "/usr/local/MacGPG2/bin/gpg",  // GPG Suite (MacGPG2)
         "/opt/homebrew/bin/gpg",       // Apple Silicon Homebrew
         "/usr/local/bin/gpg",          // Intel Homebrew
-        "/usr/local/MacGPG2/bin/gpg",  // GPG Suite
         "/usr/bin/gpg",                // System (selten)
         "/opt/homebrew/bin/gpg2",      // Alternative Namen
         "/usr/local/bin/gpg2",

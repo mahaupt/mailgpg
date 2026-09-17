@@ -21,6 +21,61 @@ extension GPGServiceImpl {
         }
     }
 
+    func lookupKeys(email: String,
+                    reply: @escaping (Data?, Error?) -> Void) {
+        do {
+            let keys = try resolveKeys(email: email)
+            reply(keys.isEmpty ? nil : try xpcEncode(keys), nil)
+        } catch {
+            reply(nil, GPGXPCError.make(.gpgFailed, message: error.localizedDescription))
+        }
+    }
+
+    /// Resolve EVERY usable key for an email address, in the same lookup order as
+    /// `resolveKey`: local keyring first, then WKD + each keyserver.
+    ///
+    /// The re-filter on `normalizedEmails` is not optional: gpg's search matches
+    /// substrings anywhere in the UID, so `--list-keys jan@a.de` can return a key that
+    /// only matches in its *name*. `resolveKey` gets away without it because it takes
+    /// one key and the caller checks nothing; encrypting to every returned key would
+    /// silently add strangers as recipients.
+    func resolveKeys(email: String) throws -> [KeyInfo] {
+        let wanted = email.lowercased()
+        func usable(_ keys: [KeyInfo]) -> [KeyInfo] {
+            keys.filter { $0.normalizedEmails.contains(wanted) }
+                .filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
+        }
+
+        // ── Step 1: local keyring ────────────────────────────────────────
+        let (localOut, _, localCode) = try gpg(
+            ["--list-keys", "--with-colons", "--fixed-list-mode", email])
+        if localCode == 0 {
+            let keys = usable(parseColonOutput(String(data: localOut, encoding: .utf8) ?? "",
+                                               wantSecretKeys: false))
+            if !keys.isEmpty { return keys }
+        }
+
+        // ── Steps 2+3: WKD + keyservers ──────────────────────────────────
+        for (i, ks) in currentKeyservers().enumerated() {
+            let autoLocate = i == 0 ? "wkd,keyserver" : "keyserver"
+            let (out, _, code) = try gpg([
+                "--keyserver", ks,
+                "--locate-keys",
+                "--auto-key-locate", autoLocate,
+                "--keyserver-options", "timeout=10",
+                "--no-auto-check-trustdb",
+                "--with-colons", "--fixed-list-mode",
+                email
+            ])
+            guard code == 0 else { continue }
+            let keys = usable(parseColonOutput(String(data: out, encoding: .utf8) ?? "",
+                                               wantSecretKeys: false))
+            if !keys.isEmpty { return keys }
+        }
+
+        return []
+    }
+
     /// Resolve a key by email address and/or key ID.
     ///
     /// Lookup order:

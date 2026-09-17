@@ -43,8 +43,8 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
         let shouldEncrypt = session.composeContext.shouldEncrypt
         var annotations: [MEEmailAddress: MEAddressAnnotation] = [:]
         var keyStatus: [String: RecipientKeyStatus] = [:]
-        var recipientKeys: [String: KeyInfo] = [:]
-        let localKeysByEmail: [String: KeyInfo]
+        var recipientKeys: [String: [KeyInfo]] = [:]
+        let localKeysByEmail: [String: [KeyInfo]]
 
         // Mark all as loading immediately so the UI shows spinners right away.
         for address in addresses {
@@ -57,12 +57,16 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
             localKeysByEmail = [:]
         } else {
             do {
+                // Group, don't uniqueKeysWith: dropping all but the first key for an
+                // address is the recipient-side mirror of the sender-side bug — and
+                // one key of a key pair set may be the one they cannot use. Grouping
+                // over `normalizedEmails` also indexes a key under every UID it has.
                 localKeysByEmail = Dictionary(
-                    try await GPGService.shared.listPublicKeys()
+                    grouping: try await GPGService.shared.listPublicKeys()
                         .filter { !$0.isRevoked && ($0.expiresAt.map { $0 > Date() } ?? true) }
-                        .map { ($0.email.lowercased(), $0) },
-                    uniquingKeysWith: { first, _ in first }
-                )
+                        .flatMap { key in key.normalizedEmails.map { ($0, key) } },
+                    by: { $0.0 }
+                ).mapValues { $0.map(\.1) }
             } catch {
                 for address in addresses {
                     let email = address.bareAddress
@@ -82,14 +86,16 @@ class ComposeSessionHandler: NSObject, MEComposeSessionHandler {
         for address in addresses {
             let email = address.bareAddress
             do {
-                let key = shouldEncrypt
-                    ? try await GPGService.shared.lookupKey(email: email)
-                    : localKeysByEmail[email]
+                let keys = shouldEncrypt
+                    ? try await GPGService.shared.lookupKeys(email: email)
+                    : (localKeysByEmail[email] ?? [])
 
-                if let key {
+                if !keys.isEmpty {
                     keyStatus[email] = .found
-                    recipientKeys[email] = key
-                    annotations[address] = .success(withLocalizedDescription: "Key: \(key.keyID)")
+                    recipientKeys[email] = keys
+                    let ids = keys.map(\.keyID).joined(separator: ", ")
+                    annotations[address] = .success(withLocalizedDescription:
+                        keys.count == 1 ? "Key: \(ids)" : "\(keys.count) keys: \(ids)")
                 } else {
                     keyStatus[email] = .notFound
                     let message = shouldEncrypt ? "No public key" : "No local public key"

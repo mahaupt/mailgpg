@@ -20,7 +20,7 @@ cask "mailgpg" do
 
   app "MailGPG.app"
 
-  postflight do
+  postflight_steps do
     plist_dir = "#{Dir.home}/Library/LaunchAgents"
     plist_path = "#{plist_dir}/com.mahaupt.mailgpg.plist"
     
@@ -57,7 +57,7 @@ cask "mailgpg" do
       print_stderr: false
   end
 
-  uninstall_postflight do
+  uninstall_postflight_steps do
     plist_path = "#{Dir.home}/Library/LaunchAgents/com.mahaupt.mailgpg.plist"
 
     if File.exist?(plist_path)

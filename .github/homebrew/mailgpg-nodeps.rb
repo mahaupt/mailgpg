@@ -16,7 +16,7 @@ cask "mailgpg-nodeps" do
 
   app "MailGPG.app"
 
-  postflight do
+  postflight_steps do
     plist_dir = "#{Dir.home}/Library/LaunchAgents"
     plist_path = "#{plist_dir}/com.mahaupt.mailgpg.plist"
 
